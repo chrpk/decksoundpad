@@ -72,6 +72,18 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(items[0].category, "assets")
             self.assertEqual(items[0].relative_path, "assets/payment_succes.wav")
 
+    def test_library_lists_packaged_assets_category(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assets = root / "assets"
+            assets.mkdir(parents=True)
+            (assets / "payment_succes.mp3").write_bytes(b"mp3")
+            library = self.library(root, root / "custom")
+            items = library.scan()
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].category, "assets")
+            self.assertEqual(items[0].relative_path, "assets/payment_succes.mp3")
+
     def test_library_nested_categories(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -84,7 +84,20 @@ class SoundLibrary:
         raise LibrarySecurityError(f"path is outside configured libraries: {path}")
 
     def _scan_bundled_sounds(self) -> list[SoundItem]:
-        return list(self._scan_root(self.paths.plugin_dir / "defaults" / "sounds"))
+        items = list(self._scan_root(self.paths.plugin_dir / "defaults" / "sounds"))
+        items.extend(self._scan_packaged_assets())
+        return items
+
+    def _scan_packaged_assets(self) -> list[SoundItem]:
+        root = self.paths.plugin_dir / "assets"
+        return [
+            replace(
+                item,
+                category="assets",
+                relative_path=f"assets/{Path(item.relative_path).as_posix()}",
+            )
+            for item in self._scan_root(root)
+        ]
 
     def _scan_root(self, root: Path) -> Iterable[SoundItem]:
         if not root.exists():

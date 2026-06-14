@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import mimetypes
 import os
 import queue
 import socket
+import struct
 import threading
 import time
 from dataclasses import asdict, replace
@@ -31,6 +34,8 @@ from .simulation import SimulatedAudioRouter, SimulatedPlaybackManager, simulati
 PUBLIC_ROUTES = {"/healthz"}
 EVENT_KEEPALIVE_SECONDS = 15
 PLAYBACK_ROUTE_READY_CACHE_SECONDS = 30.0
+WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+WEBSOCKET_MAX_FRAME_BYTES = 1024 * 1024
 
 
 class DeckSoundpadApp:
@@ -115,6 +120,7 @@ class DeckSoundpadApp:
             library=library_status,
             web=web_status,
         ).to_dict()
+        status_payload["mic_passthrough_enabled"] = self.settings.mic_passthrough_enabled
         status_payload["version"] = __version__
         status_payload["playback_route"] = self._playback_route_payload()
         return status_payload
@@ -247,7 +253,9 @@ class DeckSoundpadApp:
         status = self.router.healthcheck()
         self._remember_playback_route_status(status)
         self.logger.info("playback route precheck status=%s", status.to_dict())
-        if self._audio_route_ready(status):
+        if self._audio_route_ready(
+            status, include_mic_passthrough=self.settings.mic_passthrough_enabled
+        ):
             return status
 
         self.logger.info("playback route ensure required status=%s", status.to_dict())
@@ -257,7 +265,9 @@ class DeckSoundpadApp:
         payload = self._status_payload(status)
         self._store_status_cache(payload)
         self.broadcast("status", payload)
-        if self._audio_route_ready(status):
+        if self._audio_route_ready(
+            status, include_mic_passthrough=self.settings.mic_passthrough_enabled
+        ):
             return status
 
         if not status.pactl_available or not status.pipewire_available:
@@ -280,7 +290,9 @@ class DeckSoundpadApp:
         with self._playback_route_lock:
             status = self._playback_route_status
             checked_at = self._playback_route_checked_at
-        if status is None or not self._audio_route_ready(status):
+        if status is None or not self._audio_route_ready(
+            status, include_mic_passthrough=self.settings.mic_passthrough_enabled
+        ):
             return None
         age_seconds = time.monotonic() - checked_at
         if age_seconds > PLAYBACK_ROUTE_READY_CACHE_SECONDS:
@@ -288,9 +300,13 @@ class DeckSoundpadApp:
         return status, age_seconds
 
     @staticmethod
-    def _audio_route_ready(status: AudioStatus) -> bool:
+    def _audio_route_ready(
+        status: AudioStatus, *, include_mic_passthrough: bool
+    ) -> bool:
         if not status.sink_exists or not status.virtual_mic_exists:
             return False
+        if not include_mic_passthrough:
+            return True
         return status.selected_real_mic is None or status.loopback_exists
 
     @staticmethod
@@ -367,7 +383,9 @@ class DeckSoundpadApp:
             return status
         if status.last_error:
             return replace(status, state="error")
-        if self._audio_route_ready(status):
+        if self._audio_route_ready(
+            status, include_mic_passthrough=self.settings.mic_passthrough_enabled
+        ):
             return replace(status, state="ready")
         if not status.pactl_available or not status.pipewire_available:
             return replace(status, state="unavailable")
@@ -393,17 +411,25 @@ class DeckSoundpadApp:
         return self.settings.to_dict()
 
     def update_settings(self, patch: dict[str, Any]) -> dict[str, Any]:
+        previous_mic_passthrough = self.settings.mic_passthrough_enabled
         self.settings = patch_settings(self.settings, patch)
         save_config(self.paths, self.settings)
         self.library = SoundLibrary(self.paths, self.settings)
         if self.simulation:
             self.router = SimulatedAudioRouter(self.paths, self.settings)
             self.player = SimulatedPlaybackManager(self.settings)
+            status = self.router.healthcheck()
         else:
             self.router = AudioRouter(self.paths, self.settings)
             self.player.settings = self.settings
-        self._forget_playback_route_status()
-        self.broadcast("status", self.quick_status())
+            if self.settings.mic_passthrough_enabled != previous_mic_passthrough:
+                status = self.router.ensure()
+            else:
+                status = self.router.healthcheck()
+        self._remember_playback_route_status(status)
+        payload = self._status_payload(status)
+        self._store_status_cache(payload)
+        self.broadcast("status", payload)
         return self.settings_payload()
 
     def web_access(self) -> dict[str, Any]:
@@ -548,6 +574,7 @@ class DeckSoundpadHTTPServer(ThreadingHTTPServer):
 
 
 class DeckSoundpadHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     server_version = "DeckSoundpad/0.1"
 
     @property
@@ -592,6 +619,12 @@ class DeckSoundpadHandler(BaseHTTPRequestHandler):
     def _handle_get(self, *, include_body: bool) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/api/v1/ws":
+            if include_body:
+                self._websocket(parsed.query)
+            else:
+                self._json({"ok": True}, include_body=False)
+            return
         if path == "/healthz":
             self._text("ok\n", include_body=include_body)
             return
@@ -638,20 +671,56 @@ class DeckSoundpadHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
             return
         payload = self._body_json()
-        if method == "POST" and path == "/api/v1/sounds/refresh":
-            self._json(self.app.refresh_library())
-        elif method == "POST" and path == "/api/v1/play":
-            self._json(self.app.play_sound(payload))
-        elif method == "POST" and path == "/api/v1/stop":
-            self._json(self.app.stop(payload))
-        elif method == "POST" and path == "/api/v1/audio/ensure":
-            self._json(self.app.ensure_audio())
-        elif method == "POST" and path == "/api/v1/audio/repair":
-            self._json(self.app.repair_audio())
-        elif method == "PATCH" and path == "/api/v1/settings":
-            self._json(self.app.update_settings(payload))
+        result = self._dispatch_http_mutation(method, path, payload)
+        if result is not None:
+            self._json(result)
         else:
             self._json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
+
+    def _dispatch_http_mutation(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if method == "POST" and path == "/api/v1/sounds/refresh":
+            return self.app.refresh_library()
+        if method == "POST" and path == "/api/v1/play":
+            return self.app.play_sound(payload)
+        if method == "POST" and path == "/api/v1/stop":
+            return self.app.stop(payload)
+        if method == "POST" and path == "/api/v1/audio/ensure":
+            return self.app.ensure_audio()
+        if method == "POST" and path == "/api/v1/audio/repair":
+            return self.app.repair_audio()
+        if method == "PATCH" and path == "/api/v1/settings":
+            return self.app.update_settings(payload)
+        return None
+
+    def _dispatch_ws_action(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if action == "status":
+            return self.app.status()
+        if action == "status_quick":
+            return self.app.quick_status()
+        if action == "sounds":
+            return self.app.list_sounds()
+        if action == "sounds_refresh":
+            return self.app.refresh_library()
+        if action == "play":
+            return self.app.play_sound(payload)
+        if action == "stop":
+            return self.app.stop(payload)
+        if action == "audio_ensure":
+            return self.app.ensure_audio()
+        if action == "audio_repair":
+            return self.app.repair_audio()
+        if action == "logs_tail":
+            return self.app.tail_logs(int(payload.get("lines", 200)))
+        if action == "settings":
+            return self.app.settings_payload()
+        if action == "settings_update":
+            return self.app.update_settings(payload)
+        raise ValueError(f"unknown websocket action: {action}")
 
     def _authorized(self, query: str) -> bool:
         _ = query
@@ -725,6 +794,120 @@ class DeckSoundpadHandler(BaseHTTPRequestHandler):
         encoded = json.dumps(event, ensure_ascii=False)
         self.wfile.write(f"data: {encoded}\n\n".encode("utf-8"))
         self.wfile.flush()
+
+    def _websocket(self, query: str) -> None:
+        if not self._authorized(query):
+            self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
+        key = self.headers.get("Sec-WebSocket-Key", "")
+        if self.headers.get("Upgrade", "").lower() != "websocket" or not key:
+            self._json({"ok": False, "error": "websocket upgrade required"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        accept_digest = hashlib.sha1(f"{key}{WEBSOCKET_GUID}".encode("ascii")).digest()
+        accept = base64.b64encode(accept_digest).decode("ascii")
+        self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", accept)
+        self.end_headers()
+        self.close_connection = True
+
+        send_lock = threading.Lock()
+        subscriber = self.app.subscribe()
+        stop_event = threading.Event()
+
+        def send(payload: dict[str, Any]) -> None:
+            encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            frame = self._websocket_frame(encoded)
+            with send_lock:
+                self.wfile.write(frame)
+                self.wfile.flush()
+
+        def forward_events() -> None:
+            while not stop_event.is_set():
+                try:
+                    event = subscriber.get(timeout=EVENT_KEEPALIVE_SECONDS)
+                except queue.Empty:
+                    try:
+                        send({"type": "ping", "ts": time.time()})
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        stop_event.set()
+                    continue
+                try:
+                    send({"type": "event", "event": event})
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    stop_event.set()
+
+        thread = threading.Thread(target=forward_events, name="decksoundpad-ws-events", daemon=True)
+        thread.start()
+        try:
+            send({"type": "event", "event": {"type": "status", "payload": self.app.status()}})
+            while not stop_event.is_set():
+                frame = self._read_websocket_frame()
+                if frame is None:
+                    break
+                opcode, data = frame
+                if opcode == 0x8:
+                    break
+                if opcode == 0x9:
+                    self.wfile.write(self._websocket_frame(data, opcode=0xA))
+                    self.wfile.flush()
+                    continue
+                if opcode != 0x1:
+                    continue
+                message: dict[str, Any] | None = None
+                try:
+                    message = json.loads(data.decode("utf-8"))
+                    if not isinstance(message, dict):
+                        raise ValueError("message must be a JSON object")
+                    request_id = message.get("id")
+                    action = str(message.get("action") or "")
+                    payload = message.get("payload") or {}
+                    if not isinstance(payload, dict):
+                        raise ValueError("payload must be a JSON object")
+                    result = self._dispatch_ws_action(action, payload)
+                    send({"type": "response", "id": request_id, "ok": True, "result": result})
+                except Exception as exc:
+                    request_id = message.get("id") if isinstance(message, dict) else None
+                    send({"type": "response", "id": request_id, "ok": False, "error": str(exc)})
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+        finally:
+            stop_event.set()
+            self.app.unsubscribe(subscriber)
+
+    def _read_websocket_frame(self) -> tuple[int, bytes] | None:
+        header = self.rfile.read(2)
+        if len(header) < 2:
+            return None
+        first, second = header
+        opcode = first & 0x0F
+        masked = bool(second & 0x80)
+        length = second & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", self.rfile.read(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", self.rfile.read(8))[0]
+        if length > WEBSOCKET_MAX_FRAME_BYTES:
+            raise ValueError("websocket frame too large")
+        mask = self.rfile.read(4) if masked else b""
+        data = self.rfile.read(length)
+        if masked:
+            data = bytes(byte ^ mask[index % 4] for index, byte in enumerate(data))
+        return opcode, data
+
+    @staticmethod
+    def _websocket_frame(payload: bytes, opcode: int = 0x1) -> bytes:
+        first = 0x80 | opcode
+        length = len(payload)
+        if length < 126:
+            header = struct.pack("!BB", first, length)
+        elif length <= 0xFFFF:
+            header = struct.pack("!BBH", first, 126, length)
+        else:
+            header = struct.pack("!BBQ", first, 127, length)
+        return header + payload
 
     def _static(self, path: str, *, include_body: bool = True) -> None:
         root = self._web_root()

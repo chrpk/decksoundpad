@@ -57,7 +57,7 @@ class ConfigTests(unittest.TestCase):
                 "set_default_source": False,
             },
         )
-        self.assertTrue(route_patched.mic_passthrough_enabled)
+        self.assertFalse(route_patched.mic_passthrough_enabled)
         self.assertFalse(route_patched.play_to_output)
         self.assertTrue(route_patched.set_default_source)
         healthcheck_patched = patch_settings(settings, {"background_healthcheck_enabled": True})

@@ -1,12 +1,54 @@
-import { getLogsTail, getStatus, listSounds, repairAudioAndWait, stopAll } from "./api";
+import {
+  getLogsTail,
+  getStatus,
+  listSounds,
+  subscribeWebSocketState,
+  repairAudioAndWait,
+  stopAll,
+  subscribeServerEvents,
+} from "./api";
+import type { ServerEvent, StatusResponse } from "./api";
 import { fallbackSounds } from "./samples";
-import { appendLog, bindControls, renderBuildInfo, renderLogs, renderSounds, renderStatus } from "./ui";
+import {
+  appendLog,
+  bindControls,
+  renderBuildInfo,
+  renderConnectionStatus,
+  renderLogs,
+  renderSounds,
+  renderStatus,
+} from "./ui";
 
 let sounds = fallbackSounds;
 let usingFallbackSounds = false;
 let statusRefreshInFlight = false;
 let logsRefreshInFlight = false;
 let soundsRefreshInFlight = false;
+
+function handleServerEvent(event: ServerEvent): void {
+  if (event.type === "status") {
+    renderStatus(event.payload as StatusResponse);
+    return;
+  }
+  if (event.type === "playback_started") {
+    appendLog("Playback started");
+    void refreshStatus().catch(() => undefined);
+    return;
+  }
+  if (event.type === "playback_finished") {
+    appendLog("Playback finished");
+    void refreshStatus().catch(() => undefined);
+    return;
+  }
+  if (event.type === "library_updated") {
+    void refreshSounds().catch(() => useFallbackSounds("Sound library refresh unavailable"));
+    return;
+  }
+  if (event.type === "error" && event.payload && typeof event.payload === "object") {
+    const payload = event.payload as { message?: string };
+    appendLog(`Daemon error: ${payload.message ?? "unknown error"}`);
+  }
+}
 
 function useFallbackSounds(reason: string): void {
   sounds = fallbackSounds;
@@ -39,9 +81,11 @@ async function refreshSounds(): Promise<void> {
 
 bindControls(redrawSounds);
 renderBuildInfo();
+subscribeServerEvents(handleServerEvent);
 appendLog(`Loaded ${sounds.length} bundled sample sounds`);
 appendLog("Playback is daemon-only; browser preview is disabled");
 redrawSounds();
+subscribeWebSocketState(renderConnectionStatus);
 
 async function refreshStatus(): Promise<void> {
   if (statusRefreshInFlight) {

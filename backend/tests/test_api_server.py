@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
+import os
+import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -15,6 +19,58 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from decksoundpad.api_server import DeckSoundpadApp, create_server
 from decksoundpad.models import AudioProbe, AudioStatus
 from decksoundpad.paths import AppPaths
+
+
+def websocket_connect(host: str, port: int, path: str = "/api/v1/ws") -> tuple[socket.socket, bytes]:
+    sock = socket.create_connection((host, port), timeout=3)
+    key = base64.b64encode(os.urandom(16)).decode("ascii")
+    request = (
+        f"GET {path} HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n"
+    )
+    sock.sendall(request.encode("ascii"))
+    response = b""
+    while b"\r\n\r\n" not in response:
+        response += sock.recv(4096)
+    if not response.startswith(b"HTTP/1.1 101"):
+        raise AssertionError(response.decode("iso-8859-1"))
+    return sock, response
+
+
+def websocket_send_json(sock: socket.socket, payload: dict[str, object]) -> None:
+    data = json.dumps(payload).encode("utf-8")
+    mask = os.urandom(4)
+    if len(data) < 126:
+        header = struct.pack("!BB", 0x81, 0x80 | len(data))
+    elif len(data) <= 0xFFFF:
+        header = struct.pack("!BBH", 0x81, 0x80 | 126, len(data))
+    else:
+        header = struct.pack("!BBQ", 0x81, 0x80 | 127, len(data))
+    masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(data))
+    sock.sendall(header + mask + masked)
+
+
+def websocket_read_json(sock: socket.socket) -> dict[str, object]:
+    header = sock.recv(2)
+    if len(header) != 2:
+        raise AssertionError("websocket closed before frame")
+    first, second = header
+    length = second & 0x7F
+    if length == 126:
+        length = struct.unpack("!H", sock.recv(2))[0]
+    elif length == 127:
+        length = struct.unpack("!Q", sock.recv(8))[0]
+    data = b""
+    while len(data) < length:
+        data += sock.recv(length - len(data))
+    if first & 0x0F != 0x1:
+        return websocket_read_json(sock)
+    return json.loads(data.decode("utf-8"))
 
 
 class FakeRouter:
@@ -239,6 +295,24 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(str(response["url"]).startswith("http://"))
         self.assertNotIn("qr", response)
         self.assertNotIn("token_required", response)
+
+    def test_websocket_status_rpc_returns_initial_event_and_response(self) -> None:
+        sock, upgrade_response = websocket_connect("127.0.0.1", self.server.server_address[1])
+        try:
+            self.assertTrue(upgrade_response.startswith(b"HTTP/1.1 101"))
+            initial = websocket_read_json(sock)
+            self.assertEqual(initial["type"], "event")
+            self.assertEqual(initial["event"]["type"], "status")  # type: ignore[index]
+
+            websocket_send_json(sock, {"id": 7, "action": "status_quick", "payload": {}})
+            response = websocket_read_json(sock)
+
+            self.assertEqual(response["type"], "response")
+            self.assertEqual(response["id"], 7)
+            self.assertTrue(response["ok"])
+            self.assertTrue(response["result"]["daemon_running"])  # type: ignore[index]
+        finally:
+            sock.close()
 
     def test_removed_web_auth_endpoint_returns_not_found(self) -> None:
         request = Request(f"{self.base_url}/api/v1/web-access/regenerate-token", method="POST")

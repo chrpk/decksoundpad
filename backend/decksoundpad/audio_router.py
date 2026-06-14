@@ -320,6 +320,8 @@ class AudioRouter:
         selected_real_mic = self._detect_real_source_from_sources(sources)
         selected_real_mic_description = self._description_for_name(sources, selected_real_mic)
         loopback_exists = self._loopback_module(modules, source=selected_real_mic) is not None
+        if not self.settings.mic_passthrough_enabled:
+            loopback_exists = False
         default_source = self.get_default_source()
         recursive = any(
             module.name == "module-loopback"
@@ -381,9 +383,13 @@ class AudioRouter:
 
         status = self.healthcheck()
         modules = self.list_modules()
+        if not self.settings.mic_passthrough_enabled:
+            self._remove_decksoundpad_loopback(modules)
+
         real_source = status.selected_real_mic
         if (
-            real_source
+            self.settings.mic_passthrough_enabled
+            and real_source
             and source_is_real_mic(real_source)
             and self._loopback_module(modules) is None
         ):
@@ -485,6 +491,14 @@ class AudioRouter:
 
     def _source_exists(self, source_name: str) -> bool:
         return any(source.name == source_name for source in self._list_sources_short_fast())
+
+    def _remove_decksoundpad_loopback(self, modules: list[AudioModule]) -> None:
+        for module in modules:
+            if module.name == "module-loopback" and module_is_decksoundpad(module):
+                self.runner.run(
+                    ["pactl", "unload-module", str(module.id)],
+                    timeout=PACTL_UNLOAD_TIMEOUT,
+                )
 
     def _sink_exists(self, sink_name: str) -> bool:
         return sink_name in self._list_sink_names_short_fast()
@@ -641,6 +655,8 @@ class AudioRouter:
         if status.last_error:
             return "error"
         if status.sink_exists and status.virtual_mic_exists:
+            if not self.settings.mic_passthrough_enabled:
+                return "ready"
             if status.selected_real_mic is None or status.loopback_exists:
                 return "ready"
         return "needs_repair"

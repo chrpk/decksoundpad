@@ -71,7 +71,12 @@ function Content() {
         onError={setError}
         onActivity={addActivity}
       />
-      <SettingsPanel status={status} />
+      <SettingsPanel
+        status={status}
+        onStatus={setStatus}
+        onError={setError}
+        onActivity={addActivity}
+      />
       <PanelSection title="Advanced">
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={() => setAdvancedOpen((open) => !open)}>

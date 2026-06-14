@@ -1,5 +1,4 @@
 import { ButtonItem } from "@decky/ui";
-import { useRef, useState } from "react";
 import { FaPlay } from "react-icons/fa";
 import { playSound } from "../api/decky";
 import { SoundItem } from "../types";
@@ -12,15 +11,10 @@ interface SoundButtonProps {
 }
 
 export function SoundButton({ sound, disabled, onError, onActivity }: SoundButtonProps) {
-  const [playing, setPlaying] = useState(false);
-  const playingRef = useRef(false);
-
   const handlePlay = async () => {
-    if (disabled || playingRef.current) {
+    if (disabled) {
       return;
     }
-    playingRef.current = true;
-    setPlaying(true);
     onActivity(`Play requested: ${sound.display_name}`);
     try {
       const response = await playSound(sound.id);
@@ -34,17 +28,12 @@ export function SoundButton({ sound, disabled, onError, onActivity }: SoundButto
       const message = caught instanceof Error ? caught.message : "Playback error";
       onError(message);
       onActivity(`Playback failed: ${message}`);
-    } finally {
-      window.setTimeout(() => {
-        playingRef.current = false;
-        setPlaying(false);
-      }, 250);
     }
   };
 
   return (
     <ButtonItem
-      disabled={disabled || playing}
+      disabled={disabled}
       layout="below"
       onClick={() => void handlePlay()}
     >

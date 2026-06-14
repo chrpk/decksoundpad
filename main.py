@@ -452,7 +452,15 @@ class Plugin:
             response = self._request("GET", "/api/v1/status/quick", timeout=timeout)
         except Exception:
             return False
-        return response.get("version") == __version__
+        return response.get("version") == __version__ and self._daemon_supports_websocket(timeout=timeout)
+
+    def _daemon_supports_websocket(self, timeout: float = 0.5) -> bool:
+        try:
+            request = Request(f"{self._base_url()}/api/v1/ws", method="HEAD")
+            with urlopen(request, timeout=timeout) as response:
+                return response.status == 200
+        except Exception:
+            return False
 
     def _request(
         self,
@@ -581,6 +589,11 @@ class Plugin:
         return self._fallback_status(last_error)
 
     def _fallback_status(self, last_error: str) -> dict[str, Any]:
+        mic_passthrough_enabled = False
+        try:
+            mic_passthrough_enabled = bool(self.settings.mic_passthrough_enabled)
+        except Exception:
+            pass
         status = Status(
             daemon_running=False,
             audio=AudioStatus(
@@ -598,6 +611,7 @@ class Plugin:
             web=WebStatus(url=None, port=self._settings_web_port()),
         ).to_dict()
         status["version"] = __version__
+        status["mic_passthrough_enabled"] = mic_passthrough_enabled
         status["playback_route"] = {
             "backend": None,
             "virtual_input": "decksoundpad_mic",

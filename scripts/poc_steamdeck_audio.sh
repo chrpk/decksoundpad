@@ -11,7 +11,7 @@ LOOPBACK_DESC="DeckSoundpad mic passthrough"
 POC_TIMEOUT="${DECKSOUNDPAD_POC_TIMEOUT:-8}"
 LOG_DIR="${DECKSOUNDPAD_POC_LOG_DIR:-${ROOT_DIR}/.tmp-run/poc}"
 LOG_FILE="${LOG_DIR}/steamdeck-audio-poc.log"
-SAMPLE_FILE="${1:-${ROOT_DIR}/defaults/sounds/sample/ready-chime.wav}"
+SAMPLE_FILE="${1:-${ROOT_DIR}/assets/payment_succes.mp3}"
 SKIP_PLAY="${DECKSOUNDPAD_POC_SKIP_PLAY:-0}"
 
 mkdir -p "${LOG_DIR}"

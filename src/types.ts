@@ -55,6 +55,7 @@ export interface DeckSoundpadStatus {
   player: PlayerStatus;
   library: LibraryStatus;
   web: WebStatus;
+  mic_passthrough_enabled?: boolean;
 }
 
 export interface Settings {

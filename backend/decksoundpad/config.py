@@ -21,7 +21,7 @@ class Settings:
     auth_enabled: bool = False
     master_volume: float = 1.0
     overlap_mode: OverlapMode = "overlap"
-    max_concurrent_sounds: int = 4
+    max_concurrent_sounds: int = 3
     selected_mic_source: str | None = None
     mic_passthrough_enabled: bool = True
     set_default_source: bool = True
@@ -37,7 +37,6 @@ class Settings:
     stop_daemon_on_plugin_unload: bool = False
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "mic_passthrough_enabled", True)
         object.__setattr__(self, "set_default_source", True)
         object.__setattr__(self, "play_to_output", False)
 
@@ -110,7 +109,7 @@ def validate_settings(data: dict[str, Any]) -> Settings:
         overlap_mode=overlap_mode,  # type: ignore[arg-type]
         max_concurrent_sounds=max_concurrent_sounds,
         selected_mic_source=selected_mic_source,
-        mic_passthrough_enabled=True,
+        mic_passthrough_enabled=bool(merged["mic_passthrough_enabled"]),
         set_default_source=True,
         play_to_output=False,
         restore_previous_default_on_unload=bool(

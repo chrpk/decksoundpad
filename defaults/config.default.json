@@ -5,7 +5,7 @@
   "auth_enabled": false,
   "master_volume": 1.0,
   "overlap_mode": "overlap",
-  "max_concurrent_sounds": 4,
+  "max_concurrent_sounds": 3,
   "selected_mic_source": null,
   "mic_passthrough_enabled": true,
   "set_default_source": true,

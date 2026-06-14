@@ -35,10 +35,9 @@ Supported target extensions for MVP are WAV, FLAC, OGG, and MP3. Actual
 playback support depends on local availability of `pw-play`, `ffmpeg`, or
 `mpv`.
 
-The plugin ZIP always includes a small synthetic WAV sample pack under
-`defaults/sounds/sample` plus bundled WAV assets under `defaults/sounds/assets`.
-DeckSoundpad indexes those bundled files directly, so no sample download is
-required and no sample copy is written into your music folder.
+The plugin ZIP includes bundled MP3 assets under `assets/`. DeckSoundpad indexes
+those bundled files directly, so no sample download is required and no sample
+copy is written into your music folder.
 
 ## Use
 

@@ -132,15 +132,19 @@ class IncompatibleDaemonPlugin(Plugin):
 
 
 class VersionProbePlugin(Plugin):
-    def __init__(self, version: str | None) -> None:
+    def __init__(self, version: str | None, *, websocket_supported: bool = True) -> None:
         self.logger = logging.getLogger("test")
         self.version = version
+        self.websocket_supported = websocket_supported
 
     def _daemon_healthy(self, timeout: float = 0.5) -> bool:
         return True
 
     def _request(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
         return {"version": self.version} if self.version is not None else {}
+
+    def _daemon_supports_websocket(self, timeout: float = 0.5) -> bool:
+        return self.websocket_supported
 
 
 class PostStartInitPlugin(Plugin):
@@ -216,6 +220,7 @@ class MainBridgeTests(unittest.TestCase):
         self.assertTrue(VersionProbePlugin(__version__)._daemon_compatible())
         self.assertFalse(VersionProbePlugin(None)._daemon_compatible())
         self.assertFalse(VersionProbePlugin("0.1.2")._daemon_compatible())
+        self.assertFalse(VersionProbePlugin(__version__, websocket_supported=False)._daemon_compatible())
 
     def test_start_worker_initializes_audio_and_library_after_launch(self) -> None:
         plugin = PostStartInitPlugin()
