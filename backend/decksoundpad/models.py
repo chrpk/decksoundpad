@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
+
+
+OverlapMode = Literal["overlap", "single", "per_sound"]
+
+
+@dataclass(frozen=True)
+class SoundItem:
+    id: str
+    name: str
+    display_name: str
+    path: str
+    relative_path: str
+    category: str
+    extension: str
+    size_bytes: int
+    modified_at: str
+    duration_ms: int | None = None
+    tags: list[str] = field(default_factory=list)
+    volume: float = 1.0
+    favorite: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class AudioSource:
+    index: int | None
+    name: str
+    description: str | None = None
+    driver: str | None = None
+    sample_spec: str | None = None
+    state: str | None = None
+
+
+@dataclass(frozen=True)
+class AudioModule:
+    id: int
+    name: str
+    args: str
+
+
+@dataclass(frozen=True)
+class AudioProbe:
+    pipewire_available: bool
+    pactl_available: bool
+    pw_play_available: bool
+    ffmpeg_available: bool
+    mpv_available: bool
+    last_error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class AudioStatus:
+    pipewire_available: bool = False
+    pactl_available: bool = False
+    sink_exists: bool = False
+    virtual_mic_exists: bool = False
+    loopback_exists: bool = False
+    selected_real_mic: str | None = None
+    selected_real_mic_description: str | None = None
+    default_source: str | None = None
+    is_default_source: bool = False
+    last_error: str | None = None
+    state: str = "unknown"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PlayerStatus:
+    backend: str | None
+    pw_play_available: bool
+    ffmpeg_available: bool
+    mpv_available: bool
+    active_playbacks: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class LibraryStatus:
+    count: int
+    last_scan_at: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class WebStatus:
+    url: str | None
+    port: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class Status:
+    daemon_running: bool
+    audio: AudioStatus
+    player: PlayerStatus
+    library: LibraryStatus
+    web: WebStatus
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "daemon_running": self.daemon_running,
+            "audio": self.audio.to_dict(),
+            "player": self.player.to_dict(),
+            "library": self.library.to_dict(),
+            "web": self.web.to_dict(),
+        }
