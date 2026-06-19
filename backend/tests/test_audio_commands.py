@@ -20,8 +20,6 @@ from decksoundpad.audio_player import (
     PlaybackManager,
     PulsePlayBackend,
     PwPlayBackend,
-    parse_sink_input_ids_for_pids,
-    process_group_stop_sequence,
     pulse_volume,
     select_backend,
     terminate_process_groups,
@@ -31,7 +29,6 @@ from decksoundpad.audio_router import (
     SINK_NAME,
     AudioRouter,
     parse_pactl_modules_json,
-    parse_pactl_names_json,
     parse_pactl_sources_json,
     parse_pactl_sources_short,
     source_is_real_mic,
@@ -175,7 +172,6 @@ def temp_paths(root: Path) -> AppPaths:
         settings_dir=root / "settings",
         runtime_dir=root / "runtime",
         log_dir=root / "logs",
-        data_dir=root / "data",
         user_home=root / "home",
     )
 
@@ -201,9 +197,6 @@ class AudioCommandTests(unittest.TestCase):
         self.assertEqual(sources[0].name, "alsa_input.json")
         self.assertEqual(sources[0].description, "Built-in Mic")
         self.assertEqual(sources[0].sample_spec, "float32le 1ch 48000Hz")
-
-        names = parse_pactl_names_json(f'[{{"name":"{SINK_NAME}"}}]')
-        self.assertEqual(names, {SINK_NAME})
 
         modules = parse_pactl_modules_json(
             f'[{{"index":42,"name":"module-null-sink","argument":"sink_name={SINK_NAME}"}}]'
@@ -241,6 +234,75 @@ class AudioCommandTests(unittest.TestCase):
                 runner,
             )
             self.assertEqual(router.detect_real_source(), "alsa_input.configured")
+
+    def test_audio_router_ensure_does_not_make_virtual_mic_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = SequenceRunner(
+                {
+                    ("pactl", "info"): [
+                        RunResult(0, "Server Name: PulseAudio (on PipeWire)\n", ""),
+                    ],
+                    (
+                        "pactl",
+                        "-f",
+                        "json",
+                        "list",
+                        "sinks",
+                    ): [
+                        RunResult(
+                            0,
+                            f'[{{"index":2,"name":"{SINK_NAME}",'
+                            f'"description":"DeckSoundpad internal mix bus"}}]',
+                            "",
+                        )
+                    ],
+                    (
+                        "pactl",
+                        "-f",
+                        "json",
+                        "list",
+                        "sources",
+                    ): [
+                        RunResult(
+                            0,
+                            (
+                                '[{"index":3,"name":"alsa_input.mic",'
+                                '"description":"Steam Deck Mic"},'
+                                f'{{"index":4,"name":"{MIC_NAME}",'
+                                f'"description":"DeckSoundpad mic"}}]'
+                            ),
+                            "",
+                        )
+                    ],
+                    (
+                        "pactl",
+                        "-f",
+                        "json",
+                        "list",
+                        "modules",
+                    ): [
+                        RunResult(
+                            0,
+                            (
+                                '[{"index":9,"name":"module-loopback",'
+                                f'"argument":"source=alsa_input.mic sink={SINK_NAME}"}}]'
+                            ),
+                            "",
+                        )
+                    ],
+                    ("pactl", "get-default-source"): [
+                        RunResult(0, "alsa_input.mic\n", ""),
+                    ],
+                }
+            )
+            router = AudioRouter(temp_paths(Path(tmp)), Settings(), runner)
+
+            with patch("decksoundpad.audio_router.command_exists", return_value=True):
+                status = router.ensure()
+
+        self.assertEqual(status.default_source, "alsa_input.mic")
+        self.assertFalse(status.is_default_source)
+        self.assertNotIn(("pactl", "set-default-source", MIC_NAME), runner.calls)
 
     def test_audio_status_reports_virtual_mic_route(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -356,6 +418,27 @@ class AudioCommandTests(unittest.TestCase):
         )
         self.assertIsNotNone(module)
 
+    def test_audio_router_loads_legacy_module_state_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = temp_paths(Path(tmp))
+            paths.module_state_file.parent.mkdir(parents=True, exist_ok=True)
+            paths.module_state_file.write_text(
+                (
+                    '{"null_sink_module_id":7,'
+                    '"remap_source_module_id":8,'
+                    '"loopback_module_id":9,'
+                    '"created_at":"unused"}'
+                ),
+                encoding="utf-8",
+            )
+
+            state = AudioRouter(paths, Settings())._load_module_state()
+
+        self.assertEqual(state.null_sink_module_id, 7)
+        self.assertEqual(state.remap_source_module_id, 8)
+        self.assertEqual(state.loopback_module_id, 9)
+        self.assertFalse(hasattr(state, "created_at"))
+
     def test_audio_waits_use_fast_short_pactl_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             runner = TimeoutRecordingRunner()
@@ -398,6 +481,19 @@ class AudioCommandTests(unittest.TestCase):
             env["DBUS_SESSION_BUS_ADDRESS"],
             f"unix:path={env['XDG_RUNTIME_DIR']}/bus",
         )
+        self.assertEqual(
+            env["PULSE_SERVER"],
+            f"unix:{env['XDG_RUNTIME_DIR']}/pulse/native",
+        )
+
+    def test_decky_runtime_env_preserves_explicit_pulse_server(self) -> None:
+        env = decky_runtime_env(
+            {
+                "XDG_RUNTIME_DIR": "/tmp/decksoundpad-runtime",
+                "PULSE_SERVER": "tcp:127.0.0.1:4713",
+            }
+        )
+        self.assertEqual(env["PULSE_SERVER"], "tcp:127.0.0.1:4713")
 
     def test_player_backend_detection(self) -> None:
         with patch("decksoundpad.audio_player.command_exists") as exists:
@@ -466,20 +562,6 @@ class AudioCommandTests(unittest.TestCase):
         self.assertEqual(command[-1], "0.800")
         self.assertIn("pactl play-sample", command[2])
 
-    def test_parse_sink_input_ids_for_pids(self) -> None:
-        output = """
-Sink Input #41
-        Properties:
-                application.process.id = "1234"
-Sink Input #42
-        Properties:
-                application.process.id = "9999"
-Sink Input #43
-        Properties:
-                application.process.id = "5678"
-"""
-        self.assertEqual(parse_sink_input_ids_for_pids(output, [1234, 5678]), [41, 43])
-
     def test_playback_process_uses_decky_runtime_env(self) -> None:
         captured_envs: list[dict[str, str]] = []
 
@@ -508,6 +590,53 @@ Sink Input #43
             f"unix:path={captured_envs[0]['XDG_RUNTIME_DIR']}/bus",
         )
         self.assertEqual(captured_envs[0]["PULSE_SINK"], SINK_NAME)
+
+    def test_playback_time_limit_stops_active_process(self) -> None:
+        scheduled_timers = []
+        terminated_groups: list[list[int]] = []
+
+        class FakeTimer:
+            def __init__(self, interval, function, args=(), kwargs=None):  # noqa: ANN001
+                self.interval = interval
+                self.function = function
+                self.args = args
+                self.kwargs = kwargs or {}
+                self.daemon = False
+
+            def start(self) -> None:
+                scheduled_timers.append(self)
+
+        class SpawnedProcess:
+            pid = 34001
+            stderr = io.BytesIO()
+
+            def poll(self):  # noqa: ANN201
+                return None
+
+            def wait(self, timeout=None):  # noqa: ANN001, ANN201
+                return None
+
+        def fake_popen(_command, **_kwargs):  # noqa: ANN001, ANN202
+            return SpawnedProcess()
+
+        def fake_terminate(group_pids):  # noqa: ANN001
+            terminated_groups.append(list(group_pids))
+
+        with (
+            patch("decksoundpad.audio_player.subprocess.Popen", side_effect=fake_popen),
+            patch("decksoundpad.audio_player.threading.Timer", FakeTimer),
+            patch("decksoundpad.audio_player.terminate_process_groups", side_effect=fake_terminate),
+        ):
+            manager = PlaybackManager(Settings(max_playback_seconds=2.5), [RecordingBackend()])
+            playback_id = manager.play("sound-1", Path("sound.wav"), volume=0.75)
+
+            self.assertEqual(len(scheduled_timers), 1)
+            self.assertEqual(scheduled_timers[0].interval, 2.5)
+            scheduled_timers[0].function(*scheduled_timers[0].args, **scheduled_timers[0].kwargs)
+
+            self.assertTrue(playback_id.startswith("pb_"))
+            self.assertEqual(terminated_groups, [[34001]])
+            self.assertEqual(manager.active_count(), 0)
 
     def test_playback_pipeline_uses_decky_runtime_env_for_every_process(self) -> None:
         captured_envs: list[dict[str, str]] = []
@@ -540,21 +669,8 @@ Sink Input #43
         self.assertIn("XDG_RUNTIME_DIR", captured_envs[0])
         self.assertEqual(captured_envs[0]["PULSE_SINK"], SINK_NAME)
 
-    def test_playback_ignores_output_route_and_uses_virtual_mic_only(self) -> None:
-        manager = RecordingPlaybackManager(Settings(play_to_output=True))
-        playback_id = manager.play(
-            "sound-1",
-            Path("sound.wav"),
-            volume=0.75,
-            output_target="alsa_output.speakers",
-        )
-        self.assertTrue(playback_id.startswith("pb_"))
-        self.assertFalse(manager.settings.play_to_output)
-        self.assertEqual(len(manager.spawned), 1)
-        self.assertEqual(manager.spawned[0][1], SINK_NAME)
-
     def test_playback_spawns_virtual_mic_route(self) -> None:
-        manager = RecordingPlaybackManager(Settings(play_to_output=False))
+        manager = RecordingPlaybackManager(Settings())
         manager.play("sound-1", Path("sound.wav"), volume=0.75)
         self.assertEqual(len(manager.spawned), 1)
         self.assertEqual(manager.spawned[0][1], SINK_NAME)
@@ -572,12 +688,6 @@ Sink Input #43
             self.assertEqual(manager.active_count(), 1)
         finally:
             manager.stop_all()
-
-    def test_process_group_stop_command(self) -> None:
-        self.assertEqual(
-            process_group_stop_sequence(1234),
-            [(1234, signal.SIGTERM), (1234, signal.SIGKILL)],
-        )
 
     def test_process_group_stop_terminates_every_pipeline_process(self) -> None:
         calls: list[tuple[int, signal.Signals]] = []

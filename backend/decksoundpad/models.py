@@ -97,27 +97,16 @@ class LibraryStatus:
 
 
 @dataclass(frozen=True)
-class WebStatus:
-    url: str | None
-    port: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
 class Status:
-    daemon_running: bool
+    backend_running: bool
     audio: AudioStatus
     player: PlayerStatus
     library: LibraryStatus
-    web: WebStatus
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "daemon_running": self.daemon_running,
+            "backend_running": self.backend_running,
             "audio": self.audio.to_dict(),
             "player": self.player.to_dict(),
             "library": self.library.to_dict(),
-            "web": self.web.to_dict(),
         }

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
+import struct
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,227 +13,245 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from decksoundpad.config import Settings  # noqa: E402
-from decksoundpad import __version__  # noqa: E402
+from decksoundpad.config import Settings, patch_settings  # noqa: E402
+from decksoundpad.models import AudioStatus, LibraryStatus, PlayerStatus, Status  # noqa: E402
 from decksoundpad.paths import AppPaths, ensure_app_dirs  # noqa: E402
-from main import Plugin, _daemon_python_executable  # noqa: E402
+from main import (  # noqa: E402
+    EXTERNAL_OVERLAY_GRID_COLUMNS,
+    Plugin,
+    _input_hotkey_monitor_enabled,
+    dominant_steam_deck_stick_direction,
+    parse_steam_deck_hid_report,
+)
 
 
-class TestPlugin(Plugin):
+class FakePlayer:
     def __init__(self) -> None:
-        self.logger = logging.getLogger("test")
-        self.started = threading.Event()
-        self.requested = False
+        self.stop_all_called = False
 
-    def _daemon_healthy(self, timeout: float = 0.5) -> bool:
-        return False
+    def stop_all(self) -> None:
+        self.stop_all_called = True
 
-    def _ensure_daemon_started(self) -> bool:
-        self.started.set()
-        return False
 
-    def _request(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        self.requested = True
+class FakeBackendApp:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or Settings()
+        self.player = FakePlayer()
+        self.play_payloads: list[dict[str, object]] = []
+        self.stop_payloads: list[dict[str, object]] = []
+        self.refresh_calls = 0
+        self.repair_calls = 0
+        self.raise_status = False
+        self.sounds: list[dict[str, object]] = [{"id": "sound-1"}]
+
+    def quick_status(self) -> dict[str, object]:
+        if self.raise_status:
+            raise RuntimeError("status boom")
+        status = Status(
+            backend_running=True,
+            audio=AudioStatus(state="ready"),
+            player=PlayerStatus(
+                backend="fake",
+                pw_play_available=True,
+                ffmpeg_available=False,
+                mpv_available=False,
+                active_playbacks=0,
+            ),
+            library=LibraryStatus(count=0, last_scan_at=None),
+        ).to_dict()
+        status["version"] = "test"
+        return status
+
+    def list_sounds(self) -> dict[str, object]:
+        return {"ok": True, "sounds": self.sounds}
+
+    def play_sound(self, payload: dict[str, object]) -> dict[str, object]:
+        self.play_payloads.append(payload)
+        return {"ok": True, "playback_id": "pb-1", "sound_id": payload["sound_id"]}
+
+    def stop(self, payload: dict[str, object]) -> dict[str, object]:
+        self.stop_payloads.append(payload)
         return {"ok": True}
 
+    def refresh_library(self) -> dict[str, object]:
+        self.refresh_calls += 1
+        return {"ok": True, "sounds": [{"id": "sound-1"}]}
 
-class StaleSessionPlugin(Plugin):
-    def __init__(self, root: Path, pid: int = 12345, *, process_alive: bool = True) -> None:
-        self.logger = logging.getLogger("test")
-        self.paths = AppPaths(
-            plugin_dir=root / "plugin",
-            settings_dir=root / "settings",
-            runtime_dir=root / "runtime",
-            log_dir=root / "logs",
-            data_dir=root / "data",
-            user_home=root / "home",
-        )
-        ensure_app_dirs(self.paths)
-        self.paths.session_file.write_text(json.dumps({"pid": pid, "port": 8787}), encoding="utf-8")
-        self.daemon_process = None
-        self._daemon_lock = threading.Lock()
-        self._last_daemon_start_attempt = 0.0
-        self.started = False
-        self.process_alive = process_alive
+    def ensure_audio(self) -> dict[str, object]:
+        return AudioStatus(last_error="Audio ensure started", state="starting").to_dict()
 
-    def _process_alive(self, pid: int | None) -> bool:
-        return pid is not None and self.process_alive
+    def repair_audio(self) -> dict[str, object]:
+        self.repair_calls += 1
+        return AudioStatus(last_error="Audio repair started", state="repairing").to_dict()
 
-    def _session_process_is_decksoundpad(self, pid: int | None) -> bool:
-        return False
+    def settings_payload(self) -> dict[str, object]:
+        return self.settings.to_dict()
 
-    def _daemon_compatible(self, timeout: float = 0.5) -> bool:
-        return False
+    def update_settings(self, patch: dict[str, object]) -> dict[str, object]:
+        self.settings = patch_settings(self.settings, patch)
+        return self.settings.to_dict()
 
-    def _daemon_healthy(self, timeout: float = 0.5) -> bool:
-        return False
+    def tail_logs(self, _lines: int) -> dict[str, object]:
+        return {"ok": True, "public_log_dir": "/tmp/logs", "lines": ["backend line"]}
 
-    def _start_daemon(self) -> None:
-        self.started = True
+    def diagnostics(self) -> dict[str, object]:
+        return {"settings": self.settings.to_dict()}
 
 
-class BlockingStartPlugin(Plugin):
+class DirectPlugin(Plugin):
     def __init__(self, root: Path) -> None:
-        self.logger = logging.getLogger("test")
-        self.settings = Settings()
         self.paths = AppPaths(
             plugin_dir=root / "plugin",
             settings_dir=root / "settings",
             runtime_dir=root / "runtime",
             log_dir=root / "logs",
-            data_dir=root / "data",
             user_home=root / "home",
         )
+        (self.paths.plugin_dir / "defaults").mkdir(parents=True)
+        (self.paths.plugin_dir / "defaults" / "config.default.json").write_text("{}", encoding="utf-8")
         ensure_app_dirs(self.paths)
-        self.daemon_process = None
-        self.started = threading.Event()
-        self.release = threading.Event()
-
-    def _ensure_daemon_started(self) -> bool:
-        self.started.set()
-        self.release.wait(timeout=2)
-        return False
-
-    def _session_process_is_decksoundpad(self, pid: int | None) -> bool:
-        return False
-
-
-class ExplodingStatusPlugin(Plugin):
-    def __init__(self) -> None:
-        self.logger = logging.getLogger("test")
         self.settings = Settings()
-        self._bridge_errors: list[str] = []
-
-    def _daemon_healthy(self, timeout: float = 0.5) -> bool:
-        raise RuntimeError("status boom")
-
-
-class IncompatibleDaemonPlugin(Plugin):
-    def __init__(self) -> None:
-        self.logger = logging.getLogger("test")
-        self.settings = Settings()
-        self._bridge_errors: list[str] = []
-        self.started = threading.Event()
-        self.requested = False
-
-    def _daemon_healthy(self, timeout: float = 0.5) -> bool:
-        return True
-
-    def _daemon_compatible(self, timeout: float = 0.5) -> bool:
-        return False
-
-    def _request_daemon_start_background(self) -> None:
-        self.started.set()
-
-    def _request(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        self.requested = True
-        return {"daemon_running": True, "version": "old"}
-
-
-class VersionProbePlugin(Plugin):
-    def __init__(self, version: str | None, *, websocket_supported: bool = True) -> None:
-        self.logger = logging.getLogger("test")
-        self.version = version
-        self.websocket_supported = websocket_supported
-
-    def _daemon_healthy(self, timeout: float = 0.5) -> bool:
-        return True
-
-    def _request(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        return {"version": self.version} if self.version is not None else {}
-
-    def _daemon_supports_websocket(self, timeout: float = 0.5) -> bool:
-        return self.websocket_supported
-
-
-class PostStartInitPlugin(Plugin):
-    def __init__(self) -> None:
         self.logger = logging.getLogger("test")
         self._bridge_errors: list[str] = []
-        self.started = False
-        self.requests: list[tuple[str, str]] = []
+        self._backend_lock = threading.RLock()
+        self._backend_start_thread = None
+        self._healthcheck_stop = None
+        self._hotkey_stop = threading.Event()
+        self._hotkey_thread = None
+        self._hidraw_stop = threading.Event()
+        self._hidraw_thread = None
+        self._external_overlay_lock = threading.RLock()
+        self._external_overlay_process = None
+        self._external_overlay_visible = False
+        self._external_overlay_sounds: list[dict[str, object]] = []
+        self._external_overlay_page = 0
+        self._external_overlay_selected_index = 0
+        self._external_overlay_message = "Ready"
+        self._external_overlay_last_direct_toggle = 0.0
+        self._external_overlay_action_stop = threading.Event()
+        self._external_overlay_action_thread = None
+        self._external_overlay_input_grab_handles = []
+        self._external_overlay_input_grab_attempted = False
+        self._hidraw_action_last_at: dict[str, float] = {}
+        self._hidraw_stick_direction: dict[str, str | None] = {}
+        self._hidraw_stick_last_at: dict[str, float] = {}
+        self.fake_app = FakeBackendApp(self.settings)
+        self.app = self.fake_app
 
-    def _ensure_daemon_started(self) -> bool:
-        self.started = True
-        return True
-
-    def _daemon_healthy(self, timeout: float = 0.5) -> bool:
-        return True
-
-    def _daemon_compatible(self, timeout: float = 0.5) -> bool:
-        return True
-
-    def _request(self, method: str, path: str, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
-        self.requests.append((method, path))
-        return {"ok": True}
+    def _create_backend(self) -> FakeBackendApp:  # type: ignore[override]
+        return self.fake_app
 
 
 class MainAutoStartPlugin(Plugin):
     def __init__(self) -> None:
         self.started = False
 
-    def _request_daemon_start_background(self) -> None:
+    def _create_backend(self) -> FakeBackendApp:  # type: ignore[override]
+        return FakeBackendApp(Settings())
+
+    def _request_backend_start_background(self) -> None:
         self.started = True
 
 
 class MainBridgeTests(unittest.TestCase):
-    def test_get_status_without_main_initialization_is_safe(self) -> None:
-        plugin = TestPlugin()
-        response = asyncio.run(plugin.get_status())
-        self.assertFalse(response["daemon_running"])
-        self.assertEqual(response["audio"]["state"], "offline")  # type: ignore[index]
+    def test_get_status_uses_in_process_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            response = asyncio.run(plugin.get_status())
+
+        self.assertTrue(response["backend_running"])
+        self.assertEqual(response["player"]["backend"], "fake")  # type: ignore[index]
 
     def test_get_status_exception_is_returned_and_logged(self) -> None:
-        plugin = ExplodingStatusPlugin()
-        response = asyncio.run(plugin.get_status())
-        self.assertFalse(response["daemon_running"])
-        self.assertIn("bridge get_status failed", response["audio"]["last_error"])  # type: ignore[index]
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            plugin.fake_app.raise_status = True
+            response = asyncio.run(plugin.get_status())
+            logs = asyncio.run(plugin.get_logs_tail())
 
-        logs = asyncio.run(plugin.get_logs_tail())
+        self.assertFalse(response["backend_running"])
+        self.assertIn("backend unavailable", response["audio"]["last_error"])  # type: ignore[index]
         joined = "\n".join(logs["lines"])
         self.assertIn("status boom", joined)
 
-    def test_get_status_restarts_incompatible_daemon_without_proxying_to_it(self) -> None:
-        plugin = IncompatibleDaemonPlugin()
-        response = asyncio.run(plugin.get_status())
-        self.assertFalse(response["daemon_running"])
-        self.assertEqual(response["audio"]["state"], "starting")  # type: ignore[index]
-        self.assertTrue(plugin.started.is_set())
-        self.assertFalse(plugin.requested)
+    def test_play_sound_calls_backend_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            response = asyncio.run(plugin.play_sound("sound-1", 0.5))
 
-    def test_proxy_restarts_incompatible_daemon_without_forwarding_play(self) -> None:
-        plugin = IncompatibleDaemonPlugin()
-        response = asyncio.run(
-            plugin._proxy(
-                "POST",
-                "/api/v1/play",
-                {"sound_id": "sha1:test"},
-                fallback={"ok": False, "error": "daemon unavailable"},
+        self.assertTrue(response["ok"])
+        self.assertEqual(plugin.fake_app.play_payloads, [{"sound_id": "sound-1", "volume": 0.5}])
+
+    def test_start_backend_initializes_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            response = asyncio.run(plugin.start_backend())
+            thread = plugin._backend_start_thread
+            if thread is not None:
+                thread.join(timeout=1)
+
+        self.assertTrue(response["backend_running"])
+        self.assertEqual(plugin.fake_app.repair_calls, 1)
+        self.assertEqual(plugin.fake_app.refresh_calls, 1)
+
+    def test_start_backend_does_not_repair_again_after_startup_completed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            asyncio.run(plugin.start_backend())
+            first_thread = plugin._backend_start_thread
+            if first_thread is not None:
+                first_thread.join(timeout=1)
+
+            response = asyncio.run(plugin.start_backend())
+
+        self.assertTrue(response["backend_running"])
+        self.assertEqual(plugin.fake_app.repair_calls, 1)
+        self.assertEqual(plugin.fake_app.refresh_calls, 1)
+
+    def test_update_settings_refreshes_cached_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            response = asyncio.run(plugin.update_settings({"master_volume": 0.75}))
+
+        self.assertEqual(response["master_volume"], 0.75)
+        self.assertEqual(plugin.settings.master_volume, 0.75)
+
+    def test_get_logs_tail_combines_bridge_and_backend_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            plugin._append_bridge_log("bridge line")
+            response = asyncio.run(plugin.get_logs_tail())
+
+        joined = "\n".join(response["lines"])
+        self.assertIn("bridge line", joined)
+        self.assertIn("backend line", joined)
+
+    def test_log_input_event_includes_steam_overlay_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            response = asyncio.run(
+                plugin.log_input_event(
+                    {
+                        "source": "dom.keydown",
+                        "phase": "press",
+                        "key": "A",
+                        "steam_overlay": {
+                            "open": True,
+                            "quick_access_open": True,
+                            "visible_navigation_tree_ids": ["QuickAccess-NA"],
+                        },
+                    }
+                )
             )
-        )
-        self.assertEqual(response["ok"], False)
-        self.assertTrue(plugin.started.is_set())
-        self.assertFalse(plugin.requested)
+            logs = asyncio.run(plugin.get_logs_tail())
 
-    def test_daemon_compatible_requires_current_version(self) -> None:
-        self.assertTrue(VersionProbePlugin(__version__)._daemon_compatible())
-        self.assertFalse(VersionProbePlugin(None)._daemon_compatible())
-        self.assertFalse(VersionProbePlugin("0.1.2")._daemon_compatible())
-        self.assertFalse(VersionProbePlugin(__version__, websocket_supported=False)._daemon_compatible())
+        self.assertTrue(response["ok"])
+        joined = "\n".join(logs["lines"])
+        self.assertIn("source=dom.keydown", joined)
+        self.assertIn("steam_overlay_open=true", joined)
+        self.assertIn("QuickAccess-NA", joined)
 
-    def test_start_worker_initializes_audio_and_library_after_launch(self) -> None:
-        plugin = PostStartInitPlugin()
-        plugin._daemon_start_worker()
-        self.assertTrue(plugin.started)
-        self.assertEqual(
-            plugin.requests,
-            [
-                ("POST", "/api/v1/audio/repair"),
-                ("POST", "/api/v1/sounds/refresh"),
-            ],
-        )
-
-    def test_main_requests_daemon_start_on_plugin_load(self) -> None:
+    def test_main_requests_backend_start_on_plugin_load(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plugin_dir = root / "plugin"
@@ -256,124 +273,81 @@ class MainBridgeTests(unittest.TestCase):
 
         self.assertTrue(plugin.started)
 
-    def test_proxy_does_not_start_daemon_by_default(self) -> None:
-        plugin = TestPlugin()
-        response = asyncio.run(
-            plugin._proxy(
-                "GET",
-                "/api/v1/status/quick",
-                fallback={"ok": False},
-            )
-        )
-        self.assertEqual(response, {"ok": False})
-        self.assertFalse(plugin.started.is_set())
-        self.assertFalse(plugin.requested)
-
-    def test_proxy_requests_daemon_start_in_background(self) -> None:
-        plugin = TestPlugin()
-        response = asyncio.run(
-            plugin._proxy(
-                "GET",
-                "/api/v1/status/quick",
-                fallback={"ok": False},
-                start_daemon=True,
-            )
-        )
-        self.assertEqual(response, {"ok": False})
-        self.assertTrue(plugin.started.wait(timeout=1))
-        self.assertFalse(plugin.requested)
-
-    def test_start_daemon_returns_before_blocking_start_finishes(self) -> None:
+    def test_unload_stops_backend_player(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            plugin = BlockingStartPlugin(Path(tmp))
+            plugin = DirectPlugin(Path(tmp))
+            asyncio.run(plugin._unload())
 
-            async def run_start() -> tuple[dict[str, object], float]:
-                started_at = time.monotonic()
-                response = await plugin.start_daemon()
-                elapsed = time.monotonic() - started_at
-                self.assertTrue(plugin.started.wait(timeout=1))
-                plugin.release.set()
-                return response, elapsed
+        self.assertTrue(plugin.fake_app.player.stop_all_called)
 
-            response, elapsed = asyncio.run(run_start())
-            self.assertLess(elapsed, 0.3)
-            self.assertEqual(response["audio"]["state"], "starting")  # type: ignore[index]
-
-    def test_start_daemon_reuses_existing_start_thread(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            plugin = BlockingStartPlugin(Path(tmp))
-
-            async def run_start_twice() -> tuple[threading.Thread | None, threading.Thread | None]:
-                await plugin.start_daemon()
-                first = getattr(plugin, "_daemon_start_thread", None)
-                await plugin.start_daemon()
-                second = getattr(plugin, "_daemon_start_thread", None)
-                return first, second
-
-            try:
-                first, second = asyncio.run(run_start_twice())
-                self.assertIs(first, second)
-                self.assertTrue(plugin.started.wait(timeout=1))
-            finally:
-                plugin.release.set()
-
-    def test_get_web_access_does_not_start_daemon(self) -> None:
-        plugin = TestPlugin()
-        response = asyncio.run(plugin.get_web_access())
-        self.assertEqual(response["url"], None)
-        self.assertFalse(plugin.started.is_set())
-        self.assertFalse(plugin.requested)
-
-    def test_daemon_python_executable_uses_override(self) -> None:
-        self.assertEqual(
-            _daemon_python_executable({"DECKSOUNDPAD_PYTHON": "/custom/python3"}),
-            "/custom/python3",
-        )
-
-    def test_daemon_python_executable_avoids_frozen_decky_loader(self) -> None:
+    def test_input_hotkey_monitor_is_disabled_without_root(self) -> None:
         with (
-            patch("main.sys.executable", "/home/deck/homebrew/services/PluginLoader"),
-            patch("main.sys.frozen", True, create=True),
-            patch("main.shutil.which", return_value="/usr/bin/python3"),
+            patch.dict("main.os.environ", {}, clear=True),
+            patch("main.os.geteuid", return_value=1000),
         ):
-            self.assertEqual(_daemon_python_executable({}), "/usr/bin/python3")
+            self.assertFalse(_input_hotkey_monitor_enabled())
+
+    def test_input_hotkey_monitor_can_be_enabled_explicitly(self) -> None:
+        with (
+            patch.dict("main.os.environ", {"DECKSOUNDPAD_ENABLE_INPUT_HOTKEY": "1"}, clear=True),
+            patch("main.os.geteuid", return_value=1000),
+        ):
+            self.assertTrue(_input_hotkey_monitor_enabled())
 
     def test_bridge_log_is_written_to_public_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            plugin = BlockingStartPlugin(Path(tmp))
+            plugin = DirectPlugin(Path(tmp))
             plugin._append_bridge_log("public bridge line")
 
             content = plugin.paths.public_bridge_log_file.read_text(encoding="utf-8")
             self.assertIn("public bridge line", content)
 
-    def test_stop_daemon_refuses_stale_session_pid(self) -> None:
+    def test_external_overlay_vertical_navigation_uses_grid_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            plugin = StaleSessionPlugin(Path(tmp), pid=12345)
-            with patch("main.os.kill") as kill:
-                plugin._stop_daemon()
+            plugin = DirectPlugin(Path(tmp))
+            plugin._external_overlay_sounds = [{"id": f"sound-{index}"} for index in range(18)]
+            plugin._external_overlay_page = 0
+            plugin._external_overlay_selected_index = 1
 
-            kill.assert_not_called()
-            self.assertFalse(plugin.paths.session_file.exists())
+            plugin._move_external_overlay_selection_vertical(1)
+            self.assertEqual(plugin._external_overlay_selected_index, 1 + EXTERNAL_OVERLAY_GRID_COLUMNS)
 
-    def test_start_daemon_clears_stale_non_decksoundpad_pid(self) -> None:
+            plugin._move_external_overlay_selection_vertical(-1)
+            self.assertEqual(plugin._external_overlay_selected_index, 1)
+
+            plugin._external_overlay_selected_index = EXTERNAL_OVERLAY_GRID_COLUMNS * 2 + (EXTERNAL_OVERLAY_GRID_COLUMNS - 1)
+            plugin._move_external_overlay_selection_vertical(1)
+            self.assertEqual(plugin._external_overlay_selected_index, 17)
+
+    def test_play_previous_external_overlay_sound_wraps_across_pages(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            plugin = StaleSessionPlugin(Path(tmp), pid=12345)
-            with patch("main.os.kill") as kill:
-                plugin._ensure_daemon_started()
+            plugin = DirectPlugin(Path(tmp))
+            plugin.fake_app.sounds = [{"id": f"sound-{index}"} for index in range(23)]
 
-            kill.assert_not_called()
-            self.assertTrue(plugin.started)
-            self.assertFalse(plugin.paths.session_file.exists())
+            response = plugin._play_previous_external_overlay_sound_sync()
 
-    def test_start_daemon_clears_dead_stale_session_pid(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            plugin = StaleSessionPlugin(Path(tmp), pid=12345, process_alive=False)
-            with patch("main.os.kill") as kill:
-                plugin._ensure_daemon_started()
+        self.assertTrue(response["ok"])
+        self.assertEqual(plugin.fake_app.play_payloads, [{"sound_id": "sound-22", "volume": None}])
+        self.assertEqual(response["page"], 0)
+        self.assertEqual(response["selected_index"], 22)
 
-            kill.assert_not_called()
-            self.assertTrue(plugin.started)
-            self.assertFalse(plugin.paths.session_file.exists())
+    def test_steam_deck_hid_report_parses_stick_axes(self) -> None:
+        data = bytearray(64)
+        struct.pack_into("<HBB", data, 0, 0x01, 0x09, 56)
+        struct.pack_into("<I", data, 4, 123)
+        struct.pack_into("<II", data, 8, 0x80, 0)
+        struct.pack_into("<hhhh", data, 48, 16000, -17000, -18000, 500)
+
+        report = parse_steam_deck_hid_report(bytes(data))
+
+        self.assertIsNotNone(report)
+        assert report is not None
+        self.assertEqual(report["buttons_l"], 0x80)
+        self.assertEqual(report["left_stick_x"], 16000)
+        self.assertEqual(report["left_stick_y"], 17000)
+        self.assertEqual(report["right_stick_x"], -18000)
+        self.assertEqual(report["right_stick_y"], -500)
+        self.assertEqual(dominant_steam_deck_stick_direction(report), "left")
 
 
 if __name__ == "__main__":

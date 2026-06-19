@@ -17,15 +17,15 @@ def setup_logging(paths: AppPaths, *, debug: bool = False) -> logging.Logger:
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
 
-    _add_rotating_file_handler(logger, paths.daemon_log_file, formatter)
+    _add_rotating_file_handler(logger, paths.backend_log_file, formatter)
     public_handler = _add_rotating_file_handler(
         logger,
-        paths.public_daemon_log_file,
+        paths.public_backend_log_file,
         formatter,
         optional=True,
     )
     if public_handler is not None:
-        logger.info("public daemon log enabled path=%s", paths.public_daemon_log_file)
+        logger.info("public backend log enabled path=%s", paths.public_backend_log_file)
     return logger
 
 

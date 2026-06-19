@@ -1,127 +1,53 @@
-import { ButtonItem, PanelSection, PanelSectionRow, staticClasses } from "@decky/ui";
+import { PanelSection, PanelSectionRow, staticClasses } from "@decky/ui";
 import { definePlugin } from "@decky/api";
 import { useCallback, useState } from "react";
-import { FaChevronDown, FaChevronRight, FaSync, FaVolumeUp } from "react-icons/fa";
-import { stopAll } from "./api/decky";
+import { FaVolumeUp } from "react-icons/fa";
 import { BUILD_DATETIME } from "./buildInfo";
-import { ActivityPanel } from "./components/ActivityPanel";
-import { LogsPanel } from "./components/LogsPanel";
+import { ControlsPanel } from "./components/ControlsPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SoundGrid } from "./components/SoundGrid";
-import { StatusCard } from "./components/StatusCard";
-import { WebAccessCard } from "./components/WebAccessCard";
+import { RepairAudioRoutingPanel, StatusCard } from "./components/StatusCard";
 import { useDeckSoundpadData } from "./state/store";
 
 function Content() {
-  const [activity, setActivity] = useState<string[]>(() => [formatActivity("Panel opened")]);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [, setActivity] = useState<string[]>(() => [formatActivity("Panel opened")]);
   const addActivity = useCallback((message: string) => {
     setActivity((entries) => [formatActivity(message), ...entries].slice(0, 30));
   }, []);
   const {
     status,
-    filteredSounds,
-    query,
-    setQuery,
+    settings,
+    sounds,
     loading,
     error,
-    start,
-    reload,
     refresh,
     setStatus,
     setError,
   } = useDeckSoundpadData(addActivity);
 
-  const playbackDisabled = !status?.daemon_running;
-  const stopAllSounds = useCallback(async () => {
-    addActivity("Stop all requested");
-    try {
-      const response = await stopAll();
-      if (response.ok === false) {
-        addActivity(`Stop all failed: ${response.error ?? "unknown error"}`);
-        setError(response.error ?? "Stop all failed");
-        return;
-      }
-      addActivity("All playback stopped");
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Stop all failed";
-      addActivity(`Stop all failed: ${message}`);
-      setError(message);
-    }
-  }, [addActivity, setError]);
-
   return (
     <div style={contentStyle}>
       <div style={topBuildMetaStyle}>Build {BUILD_DATETIME}</div>
-      <StatusCard status={status} loading={loading} onStatus={setStatus} onError={setError} onActivity={addActivity} />
-      {error ? (
-        <PanelSection title="Playback error">
-          <PanelSectionRow>{error}</PanelSectionRow>
-        </PanelSection>
-      ) : null}
-      <SoundGrid
-        sounds={filteredSounds}
-        query={query}
-        setQuery={setQuery}
-        disabled={Boolean(playbackDisabled)}
-        loading={loading}
-        activeCount={status?.player.active_playbacks ?? 0}
-        onRefresh={() => void refresh()}
-        onStopAll={() => void stopAllSounds()}
-        onError={setError}
-        onActivity={addActivity}
-      />
+      <StatusCard status={status} loading={loading} />
       <SettingsPanel
         status={status}
         onStatus={setStatus}
         onError={setError}
         onActivity={addActivity}
       />
-      <PanelSection title="Advanced">
-        <PanelSectionRow>
-          <ButtonItem layout="below" onClick={() => setAdvancedOpen((open) => !open)}>
-            {advancedOpen ? <FaChevronDown style={iconStyle} /> : <FaChevronRight style={iconStyle} />}
-            {advancedOpen ? "Hide diagnostics" : "Show diagnostics"}
-          </ButtonItem>
-        </PanelSectionRow>
-        {advancedOpen ? (
-          <>
-            <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                disabled={loading}
-                onClick={() => {
-                  addActivity("Manual daemon start requested");
-                  void start();
-                }}
-              >
-                <FaSync style={iconStyle} />
-                Start daemon
-              </ButtonItem>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem
-                layout="below"
-                disabled={loading}
-                onClick={() => {
-                  addActivity("Manual status check requested");
-                  void reload();
-                }}
-              >
-                <FaSync style={iconStyle} />
-                Check status
-              </ButtonItem>
-            </PanelSectionRow>
-          </>
-        ) : null}
-      </PanelSection>
-      {advancedOpen ? (
-        <>
-          <ActivityPanel entries={activity} />
-          <WebAccessCard onActivity={addActivity} />
-          <LogsPanel onActivity={addActivity} />
-        </>
+      <ControlsPanel />
+      {error ? (
+        <PanelSection title="Playback error">
+          <PanelSectionRow>{error}</PanelSectionRow>
+        </PanelSection>
       ) : null}
+      <SoundGrid
+        libraryDirs={settings?.library_dirs ?? []}
+        soundCount={status?.library.count ?? sounds.length}
+        loading={loading}
+        onRefresh={() => void refresh()}
+      />
+      <RepairAudioRoutingPanel onStatus={setStatus} onError={setError} onActivity={addActivity} />
     </div>
   );
 }
@@ -146,16 +72,11 @@ const topBuildMetaStyle = {
   textAlign: "right",
 } as const;
 
-const iconStyle = {
-  marginRight: "8px",
-} as const;
-
-export default definePlugin(() => ({
-  name: "DeckSoundpad",
-  titleView: <div className={staticClasses.Title}>DeckSoundpad</div>,
-  content: <Content />,
-  icon: <FaVolumeUp />,
-  onDismount() {
-    console.log("DeckSoundpad frontend unloaded");
-  },
-}));
+export default definePlugin(() => {
+  return {
+    name: "DeckSoundpad",
+    titleView: <div className={staticClasses.Title}>DeckSoundpad</div>,
+    content: <Content />,
+    icon: <FaVolumeUp />,
+  };
+});

@@ -1,14 +1,10 @@
 # Steam Deck Audio PoC
 
-This PoC tests only the core audio idea. It does not start Decky, the daemon, or
-the web UI.
+This check verifies the core audio route after DeckSoundpad has initialized the
+backend and repaired audio routing from the Decky panel.
 
-Run it from Desktop Mode Konsole on the Steam Deck:
-
-```bash
-cd /path/to/DeckSoundpad
-scripts/poc_steamdeck_audio.sh
-```
+Open Decky, select DeckSoundpad, and run Repair audio routing. Then run the
+verification commands below from Desktop Mode Konsole on the Steam Deck.
 
 Expected result:
 
@@ -30,27 +26,14 @@ SteamOS/KDE settings screens may not show virtual Pulse sources immediately, but
 voice apps that enumerate Pulse/PipeWire inputs should see it after the source
 appears in `pactl`.
 
-Useful options:
-
-```bash
-DECKSOUNDPAD_POC_SKIP_PLAY=1 scripts/poc_steamdeck_audio.sh
-DECKSOUNDPAD_POC_TIMEOUT=15 scripts/poc_steamdeck_audio.sh
-```
-
-Cleanup:
-
-```bash
-scripts/poc_reset_audio.sh
-```
-
 Pass/fail interpretation:
 
 - If `pactl info` hangs or times out, the blocker is PipeWire/PulseAudio state,
   not Decky UI.
 - If `pactl list sources short | grep decksoundpad` shows nothing, the virtual
-  source was not created. Re-run the PoC and check
-  `.tmp-run/poc/steamdeck-audio-poc.log`.
+  source was not created. Press Repair audio routing again and inspect the
+  public logs in `~/Public/DeckSoundpad/logs/`.
 - If `DeckSoundpad mic` appears but meters do not react, the virtual-source graph
   needs a different PipeWire implementation.
-- If the PoC works in Konsole, then the product should be built by wrapping this
-  audio path safely behind manual Decky actions.
+- If the route works in Konsole, then Decky controls should be able to send
+  soundboard playback into `DeckSoundpad mic`.

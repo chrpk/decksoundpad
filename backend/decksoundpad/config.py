@@ -11,34 +11,25 @@ from .paths import AppPaths, ensure_app_dirs
 
 VALID_OVERLAP_MODES = {"overlap", "single", "per_sound"}
 DEFAULT_ALLOWED_EXTENSIONS = [".wav", ".flac", ".ogg", ".mp3"]
+DEFAULT_MAX_PLAYBACK_SECONDS = 30.0
+MAX_PLAYBACK_SECONDS_LIMIT = 600.0
 
 
 @dataclass(frozen=True)
 class Settings:
     library_dirs: list[str] = field(default_factory=lambda: ["~/Music/DeckSoundpad"])
-    web_host: str = "0.0.0.0"
-    web_port: int = 8787
-    auth_enabled: bool = False
     master_volume: float = 1.0
     overlap_mode: OverlapMode = "overlap"
     max_concurrent_sounds: int = 3
+    max_playback_seconds: float = DEFAULT_MAX_PLAYBACK_SECONDS
     selected_mic_source: str | None = None
     mic_passthrough_enabled: bool = True
-    set_default_source: bool = True
-    play_to_output: bool = False
-    restore_previous_default_on_unload: bool = True
     auto_repair_on_resume: bool = True
     background_healthcheck_enabled: bool = False
     allowed_extensions: list[str] = field(
         default_factory=lambda: DEFAULT_ALLOWED_EXTENSIONS.copy()
     )
     allow_symlinks_outside_libraries: bool = False
-    auto_port: bool = True
-    stop_daemon_on_plugin_unload: bool = False
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "set_default_source", True)
-        object.__setattr__(self, "play_to_output", False)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -73,10 +64,6 @@ def validate_settings(data: dict[str, Any]) -> Settings:
     ):
         raise ValueError("library_dirs must be a non-empty list of strings")
 
-    web_port = int(merged["web_port"])
-    if web_port < 1 or web_port > 65535:
-        raise ValueError("web_port must be between 1 and 65535")
-
     master_volume = float(merged["master_volume"])
     if master_volume < 0.0 or master_volume > 1.5:
         raise ValueError("master_volume must be between 0.0 and 1.5")
@@ -88,6 +75,12 @@ def validate_settings(data: dict[str, Any]) -> Settings:
     max_concurrent_sounds = int(merged["max_concurrent_sounds"])
     if max_concurrent_sounds < 1 or max_concurrent_sounds > 32:
         raise ValueError("max_concurrent_sounds must be between 1 and 32")
+
+    max_playback_seconds = float(merged["max_playback_seconds"])
+    if max_playback_seconds < 1.0 or max_playback_seconds > MAX_PLAYBACK_SECONDS_LIMIT:
+        raise ValueError(
+            f"max_playback_seconds must be between 1 and {MAX_PLAYBACK_SECONDS_LIMIT:g}"
+        )
 
     allowed_extensions = merged["allowed_extensions"]
     if not isinstance(allowed_extensions, list):
@@ -102,27 +95,18 @@ def validate_settings(data: dict[str, Any]) -> Settings:
 
     return Settings(
         library_dirs=[item.strip() for item in library_dirs],
-        web_host=str(merged["web_host"]),
-        web_port=web_port,
-        auth_enabled=bool(merged["auth_enabled"]),
         master_volume=master_volume,
         overlap_mode=overlap_mode,  # type: ignore[arg-type]
         max_concurrent_sounds=max_concurrent_sounds,
+        max_playback_seconds=max_playback_seconds,
         selected_mic_source=selected_mic_source,
         mic_passthrough_enabled=bool(merged["mic_passthrough_enabled"]),
-        set_default_source=True,
-        play_to_output=False,
-        restore_previous_default_on_unload=bool(
-            merged["restore_previous_default_on_unload"]
-        ),
         auto_repair_on_resume=bool(merged["auto_repair_on_resume"]),
         background_healthcheck_enabled=bool(merged["background_healthcheck_enabled"]),
         allowed_extensions=normalized_extensions,
         allow_symlinks_outside_libraries=bool(
             merged["allow_symlinks_outside_libraries"]
         ),
-        auto_port=bool(merged["auto_port"]),
-        stop_daemon_on_plugin_unload=bool(merged["stop_daemon_on_plugin_unload"]),
     )
 
 
@@ -136,11 +120,22 @@ def default_settings(paths: AppPaths | None = None) -> Settings:
 def load_config(paths: AppPaths) -> Settings:
     ensure_app_dirs(paths)
     data = default_settings(paths).to_dict()
-    data.update(_load_json_file(paths.config_file))
+    user_data = _load_json_file(paths.config_file)
+    data.update(user_data)
+    migrated = _should_migrate_legacy_single_mode(user_data)
+    if migrated:
+        data["overlap_mode"] = "overlap"
     settings = validate_settings(data)
-    if not paths.config_file.exists():
+    if not paths.config_file.exists() or migrated:
         save_config(paths, settings)
     return settings
+
+
+def _should_migrate_legacy_single_mode(user_data: dict[str, Any]) -> bool:
+    return (
+        user_data.get("overlap_mode") == "single"
+        and "max_playback_seconds" not in user_data
+    )
 
 
 def save_config(paths: AppPaths, settings: Settings) -> None:

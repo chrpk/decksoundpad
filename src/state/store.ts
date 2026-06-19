@@ -1,46 +1,73 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getStatus, refreshLibrary, startDaemon } from "../api/decky";
-import { DeckSoundpadStatus, SoundItem } from "../types";
+import { getSettings, getStatus, refreshLibrary, startBackend } from "../api/decky";
+import { DeckSoundpadStatus, Settings, SoundItem } from "../types";
+import { delay } from "../utils/timing";
 
 export function useDeckSoundpadData(onActivity?: (message: string) => void) {
   const [status, setStatus] = useState<DeckSoundpadStatus | null>(null);
   const [sounds, setSounds] = useState<SoundItem[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    onActivity?.("Requesting daemon status");
-    try {
-      const nextStatus = await getStatus();
-      setStatus(nextStatus);
-      if (!nextStatus.daemon_running) {
-        onActivity?.("Daemon is not running");
-      } else if (nextStatus.audio.last_error === "Audio status pending") {
-        onActivity?.("Daemon is running; audio check is pending");
-      } else if (nextStatus.audio.last_error) {
-        onActivity?.(`Audio status: ${nextStatus.audio.last_error}`);
-      } else {
-        onActivity?.("Daemon status loaded");
+  const loadStatus = useCallback(
+    async ({ silent = false, showLoading = false }: { silent?: boolean; showLoading?: boolean } = {}) => {
+      if (showLoading) {
+        setLoading(true);
       }
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Unable to load DeckSoundpad";
-      onActivity?.(`Quick status failed: ${message}`);
-      setError(message);
-    } finally {
-      setLoading(false);
+      if (!silent) {
+        setError(null);
+        onActivity?.("Requesting backend status");
+      }
+      try {
+        const nextStatus = await getStatus();
+        setStatus(nextStatus);
+        if (!silent) {
+          if (!isBackendRunning(nextStatus)) {
+            onActivity?.("Backend is not running");
+          } else if (nextStatus.audio.last_error === "Audio status pending") {
+            onActivity?.("Backend is running; audio check is pending");
+          } else if (nextStatus.audio.last_error) {
+            onActivity?.(`Audio status: ${nextStatus.audio.last_error}`);
+          } else {
+            onActivity?.("Backend status loaded");
+          }
+        }
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "Unable to load DeckSoundpad";
+        if (!silent) {
+          onActivity?.(`Quick status failed: ${message}`);
+          setError(message);
+        }
+      } finally {
+        if (showLoading) {
+          setLoading(false);
+        }
+      }
+    },
+    [onActivity],
+  );
+
+  const reload = useCallback(async () => {
+    await loadStatus({ showLoading: true });
+  }, [loadStatus]);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      setSettings(await getSettings());
+    } catch {
+      setSettings(null);
     }
-  }, [onActivity]);
+  }, []);
 
   const start = useCallback(async () => {
     setError(null);
-    onActivity?.("Starting daemon");
+    onActivity?.("Starting backend");
     try {
-      const nextStatus = await startDaemon();
+      const nextStatus = await startBackend();
       setStatus(nextStatus);
-      onActivity?.("Daemon start requested");
+      onActivity?.("Backend start requested");
       window.setTimeout(() => {
         void reload();
         void refreshLibrary()
@@ -54,7 +81,7 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
       }, 900);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Unable to start DeckSoundpad";
-      onActivity?.(`Daemon start failed: ${message}`);
+      onActivity?.(`Backend start failed: ${message}`);
       setError(message);
     }
   }, [onActivity, reload]);
@@ -64,8 +91,10 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
     setError(null);
     onActivity?.("Refreshing sound library");
     try {
-      await startDaemon();
-      await delay(700);
+      if (!status?.backend_running) {
+        await startBackend();
+        await delay(700);
+      }
       const response = await refreshLibrary();
       if (response.ok) {
         setSounds(response.sounds);
@@ -83,11 +112,17 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
     } finally {
       setLoading(false);
     }
-  }, [onActivity]);
+  }, [onActivity, status?.backend_running]);
 
   useEffect(() => {
-    onActivity?.("Safe open: no daemon or audio commands started automatically");
-  }, [onActivity]);
+    onActivity?.("Safe open: no audio commands started automatically");
+    void loadStatus({ silent: true });
+    void loadSettings();
+    const statusTimer = window.setInterval(() => {
+      void loadStatus({ silent: true });
+    }, 2500);
+    return () => window.clearInterval(statusTimer);
+  }, [loadSettings, loadStatus, onActivity]);
 
   const filteredSounds = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -103,6 +138,7 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
 
   return {
     status,
+    settings,
     sounds,
     filteredSounds,
     query,
@@ -117,6 +153,6 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
   };
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function isBackendRunning(status: DeckSoundpadStatus): boolean {
+  return status.backend_running;
 }

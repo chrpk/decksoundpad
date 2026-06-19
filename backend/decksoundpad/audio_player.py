@@ -2,23 +2,38 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import signal
 import shlex
 import subprocess
+import threading
 import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
+try:
+    import audioop
+except ImportError:  # pragma: no cover - audioop is present on Steam Deck Python.
+    audioop = None  # type: ignore[assignment]
+
+from .audio_formats import (
+    DIRECT_PLAYBACK_EXTENSIONS,
+    SUPPORTED_PLAYBACK_EXTENSIONS,
+    audio_extension,
+    can_play_supported_extension,
+)
 from .audio_router import SINK_NAME
 from .config import Settings
 from .process import command_exists, decky_runtime_env, run_capture
 
 
 PLAYBACK_STARTUP_GRACE_SECONDS = 0.12
-SINK_INPUT_LIST_TIMEOUT = 0.75
-SINK_INPUT_MOVE_TIMEOUT = 0.75
+LOW_LATENCY_SAMPLE_RATE = 48000
+LOW_LATENCY_CHANNELS = 2
+LOW_LATENCY_SAMPLE_WIDTH = 2
+LOW_LATENCY_CHUNK_FRAMES = 240
+LOW_LATENCY_SUPPORTED_EXTENSIONS = SUPPORTED_PLAYBACK_EXTENSIONS
 
 
 @dataclass(frozen=True)
@@ -40,13 +55,13 @@ class PlayerBackend(Protocol):
 
 class PwPlayBackend:
     name = "pw_play"
-    direct_extensions = {".wav", ".flac", ".ogg"}
+    direct_extensions = DIRECT_PLAYBACK_EXTENSIONS
 
     def is_available(self) -> bool:
         return command_exists("pw-play")
 
     def can_play(self, path: Path) -> bool:
-        return path.suffix.lower() in self.direct_extensions
+        return audio_extension(path) in self.direct_extensions
 
     def build_command(
         self, path: Path, volume: float, target: str | None = SINK_NAME
@@ -64,13 +79,13 @@ def pulse_volume(volume: float) -> int:
 
 class PulsePlayBackend:
     name = "pulse_play"
-    direct_extensions = {".wav", ".flac", ".ogg"}
+    direct_extensions = DIRECT_PLAYBACK_EXTENSIONS
 
     def is_available(self) -> bool:
         return command_exists("paplay")
 
     def can_play(self, path: Path) -> bool:
-        return path.suffix.lower() in self.direct_extensions
+        return audio_extension(path) in self.direct_extensions
 
     def build_command(
         self, path: Path, volume: float, target: str | None = SINK_NAME
@@ -89,7 +104,7 @@ class FfmpegPulseRawBackend:
         return command_exists("ffmpeg") and command_exists("pacat")
 
     def can_play(self, path: Path) -> bool:
-        return path.suffix.lower() in {".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"}
+        return can_play_supported_extension(path)
 
     def build_command(
         self, path: Path, volume: float, target: str | None = SINK_NAME
@@ -133,7 +148,7 @@ class FfmpegRawBackend:
         return command_exists("ffmpeg") and command_exists("pw-play")
 
     def can_play(self, path: Path) -> bool:
-        return path.suffix.lower() in {".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"}
+        return can_play_supported_extension(path)
 
     def build_command(
         self, path: Path, volume: float, target: str | None = SINK_NAME
@@ -173,13 +188,13 @@ class FfmpegRawBackend:
 
 class PactlSampleBackend:
     name = "pactl_sample"
-    supported_extensions = {".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"}
+    supported_extensions = SUPPORTED_PLAYBACK_EXTENSIONS
 
     def is_available(self) -> bool:
         return command_exists("pactl")
 
     def can_play(self, path: Path) -> bool:
-        suffix = path.suffix.lower()
+        suffix = audio_extension(path)
         return suffix == ".wav" or (
             suffix in self.supported_extensions and command_exists("ffmpeg")
         )
@@ -233,7 +248,7 @@ class MpvBackend:
         return command_exists("mpv")
 
     def can_play(self, path: Path) -> bool:
-        return path.suffix.lower() in {".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"}
+        return can_play_supported_extension(path)
 
     def build_command(
         self, path: Path, volume: float, target: str | None = SINK_NAME
@@ -259,6 +274,251 @@ class Playback:
     path: Path
     group_pids: list[int]
     processes: list[subprocess.Popen[bytes]]
+
+
+@dataclass
+class QueuedSample:
+    playback_id: str
+    sound_id: str
+    data: bytes
+    offset: int = 0
+
+
+class LowLatencyRawMixer:
+    name = "low_latency_mixer"
+
+    def __init__(self, logger: logging.Logger | None = None):
+        self.logger = logger or logging.getLogger("decksoundpad.low_latency")
+        self._lock = threading.RLock()
+        self._samples: dict[tuple[Path, int, int], bytes] = {}
+        self._preloading: set[tuple[Path, int, int]] = set()
+        self._active: list[QueuedSample] = []
+        self._process: subprocess.Popen[bytes] | None = None
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self._pacat_available: bool | None = None
+        self._ffmpeg_available: bool | None = None
+        self._chunk_bytes = LOW_LATENCY_CHUNK_FRAMES * LOW_LATENCY_CHANNELS * LOW_LATENCY_SAMPLE_WIDTH
+        self._silence = b"\x00" * self._chunk_bytes
+
+    def is_available(self) -> bool:
+        return self._has_pacat()
+
+    def can_play(self, path: Path) -> bool:
+        suffix = audio_extension(path)
+        if suffix not in LOW_LATENCY_SUPPORTED_EXTENSIONS:
+            return False
+        if not self._has_pacat():
+            return False
+        if suffix == ".wav":
+            return True
+        return self._has_ffmpeg()
+
+    def _has_pacat(self) -> bool:
+        if self._pacat_available is None:
+            self._pacat_available = command_exists("pacat")
+        return self._pacat_available
+
+    def _has_ffmpeg(self) -> bool:
+        if self._ffmpeg_available is None:
+            self._ffmpeg_available = command_exists("ffmpeg")
+        return self._ffmpeg_available
+
+    def active_count(self) -> int:
+        with self._lock:
+            return len(self._active)
+
+    def preload_many(self, paths: Sequence[Path]) -> None:
+        if paths and self.is_available():
+            try:
+                self._ensure_stream()
+            except Exception as exc:
+                self.logger.debug("low latency stream warmup failed error=%s", exc)
+        for path in paths:
+            self.preload(path)
+
+    def preload(self, path: Path) -> None:
+        if not self.can_play(path):
+            return
+        key = self._cache_key(path)
+        with self._lock:
+            if key in self._samples or key in self._preloading:
+                return
+            self._preloading.add(key)
+
+        def run() -> None:
+            try:
+                data = self._decode(path)
+                with self._lock:
+                    self._samples[key] = data
+            except Exception as exc:
+                self.logger.debug("low latency preload failed path=%s error=%s", path, exc)
+            finally:
+                with self._lock:
+                    self._preloading.discard(key)
+
+        threading.Thread(target=run, name="decksoundpad-preload-sound", daemon=True).start()
+
+    def play(self, sound_id: str, path: Path, volume: float) -> str:
+        if not self.can_play(path):
+            raise RuntimeError("low latency mixer cannot play this sound")
+        data = self._sample_data(path)
+        if volume != 1.0:
+            if audioop is None:
+                raise RuntimeError("audioop is required for low latency volume scaling")
+            data = audioop.mul(data, LOW_LATENCY_SAMPLE_WIDTH, max(0.0, min(volume, 1.5)))
+        self._ensure_stream()
+        playback_id = f"ll_{time.time_ns()}"
+        with self._lock:
+            self._active.append(QueuedSample(playback_id, sound_id, data))
+        return playback_id
+
+    def stop_all(self) -> None:
+        with self._lock:
+            self._active.clear()
+
+    def stop_sound(self, sound_id: str) -> None:
+        with self._lock:
+            self._active = [sample for sample in self._active if sample.sound_id != sound_id]
+
+    def stop_playback(self, playback_id: str) -> bool:
+        with self._lock:
+            before = len(self._active)
+            self._active = [sample for sample in self._active if sample.playback_id != playback_id]
+            return len(self._active) != before
+
+    def _sample_data(self, path: Path) -> bytes:
+        key = self._cache_key(path)
+        with self._lock:
+            cached = self._samples.get(key)
+        if cached is not None:
+            return cached
+        data = self._decode(path)
+        with self._lock:
+            self._samples[key] = data
+        return data
+
+    @staticmethod
+    def _cache_key(path: Path) -> tuple[Path, int, int]:
+        stat = path.stat()
+        return path.resolve(), stat.st_mtime_ns, stat.st_size
+
+    def _decode(self, path: Path) -> bytes:
+        if self._has_ffmpeg():
+            return self._decode_with_ffmpeg(path)
+        if audio_extension(path) == ".wav":
+            return self._decode_exact_wav(path)
+        raise RuntimeError("ffmpeg is required to decode compressed sounds")
+
+    def _decode_with_ffmpeg(self, path: Path) -> bytes:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(path),
+                "-f",
+                "s16le",
+                "-ac",
+                str(LOW_LATENCY_CHANNELS),
+                "-ar",
+                str(LOW_LATENCY_SAMPLE_RATE),
+                "-",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=playback_env(),
+            timeout=10,
+        )
+        if result.returncode != 0:
+            message = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(message or "ffmpeg decode failed")
+        return result.stdout
+
+    @staticmethod
+    def _decode_exact_wav(path: Path) -> bytes:
+        with wave.open(str(path), "rb") as handle:
+            if (
+                handle.getframerate() != LOW_LATENCY_SAMPLE_RATE
+                or handle.getnchannels() != LOW_LATENCY_CHANNELS
+                or handle.getsampwidth() != LOW_LATENCY_SAMPLE_WIDTH
+            ):
+                raise RuntimeError("ffmpeg is required to resample wav files")
+            return handle.readframes(handle.getnframes())
+
+    def _ensure_stream(self) -> None:
+        with self._lock:
+            if self._process is not None and self._process.poll() is None:
+                if self._thread is None or not self._thread.is_alive():
+                    self._start_thread_locked()
+                return
+            self._process = self._spawn_pacat()
+            self._running = True
+            self._start_thread_locked()
+
+    def _start_thread_locked(self) -> None:
+        self._thread = threading.Thread(target=self._run, name="decksoundpad-low-latency-mixer", daemon=True)
+        self._thread.start()
+
+    @staticmethod
+    def _spawn_pacat() -> subprocess.Popen[bytes]:
+        return subprocess.Popen(
+            [
+                "pacat",
+                "--raw",
+                f"--rate={LOW_LATENCY_SAMPLE_RATE}",
+                f"--channels={LOW_LATENCY_CHANNELS}",
+                "--format=s16le",
+                f"--latency-msec={max(1, round(LOW_LATENCY_CHUNK_FRAMES / LOW_LATENCY_SAMPLE_RATE * 1000))}",
+                f"--device={SINK_NAME}",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            env=playback_env(),
+        )
+
+    def _run(self) -> None:
+        while True:
+            with self._lock:
+                process = self._process
+                running = self._running
+            if not running or process is None or process.stdin is None:
+                return
+            chunk = self._next_chunk()
+            try:
+                process.stdin.write(chunk)
+                process.stdin.flush()
+            except (BrokenPipeError, OSError):
+                with self._lock:
+                    self._process = None
+                    self._running = False
+                return
+
+    def _next_chunk(self) -> bytes:
+        with self._lock:
+            active = list(self._active)
+        if not active:
+            return self._silence
+        if audioop is None:
+            return self._silence
+        mixed = self._silence
+        finished: set[str] = set()
+        for sample in active:
+            end = sample.offset + self._chunk_bytes
+            piece = sample.data[sample.offset:end]
+            if len(piece) < self._chunk_bytes:
+                piece += b"\x00" * (self._chunk_bytes - len(piece))
+                finished.add(sample.playback_id)
+            mixed = audioop.add(mixed, piece, LOW_LATENCY_SAMPLE_WIDTH)
+            sample.offset = end
+        with self._lock:
+            self._active = [sample for sample in self._active if sample.playback_id not in finished]
+        return mixed
 
 
 def default_backends() -> list[PlayerBackend]:
@@ -288,10 +548,6 @@ def candidate_backends(
     return candidates
 
 
-def process_group_stop_sequence(pid: int) -> list[tuple[int, signal.Signals]]:
-    return [(pid, signal.SIGTERM), (pid, signal.SIGKILL)]
-
-
 class PlaybackManager:
     def __init__(
         self,
@@ -303,6 +559,7 @@ class PlaybackManager:
         self.backends = list(backends or default_backends())
         self.logger = logger or logging.getLogger("decksoundpad.playback")
         self.playbacks: dict[str, Playback] = {}
+        self.low_latency = LowLatencyRawMixer(self.logger.getChild("low_latency"))
         self.logger.info(
             "playback backend order=%s",
             [backend.name for backend in self.backends],
@@ -310,46 +567,69 @@ class PlaybackManager:
 
     def active_count(self) -> int:
         self._collect_finished()
-        return len(self.playbacks)
+        return len(self.playbacks) + self.low_latency.active_count()
+
+    def preload(self, paths: Sequence[Path]) -> None:
+        self.low_latency.preload_many(paths)
 
     def play(
         self,
         sound_id: str,
         path: Path,
         volume: float | None = None,
-        output_target: str | None = None,
     ) -> str:
-        _ = output_target
         self._collect_finished()
+        suffix = audio_extension(path)
         self.logger.info(
-            "playback request sound_id=%s path=%s suffix=%s exists=%s active=%s overlap_mode=%s max_concurrent=%s",
+            "playback request sound_id=%s path=%s suffix=%s exists=%s active=%s overlap_mode=%s max_concurrent=%s max_playback_seconds=%.3f",
             sound_id,
             path,
-            path.suffix.lower(),
+            suffix,
             path.exists(),
             len(self.playbacks),
             self.settings.overlap_mode,
             self.settings.max_concurrent_sounds,
+            self.settings.max_playback_seconds,
         )
         if self.settings.overlap_mode == "single":
-            self.stop_all()
+            self.stop_all(reason="overlap_mode_single")
         elif self.settings.overlap_mode == "per_sound":
-            self.stop_sound(sound_id)
-        elif len(self.playbacks) >= self.settings.max_concurrent_sounds:
+            self.stop_sound(sound_id, reason="overlap_mode_per_sound")
+        elif len(self.playbacks) + self.low_latency.active_count() >= self.settings.max_concurrent_sounds:
             raise RuntimeError("maximum concurrent sounds reached")
+
+        effective_volume = volume if volume is not None else self.settings.master_volume
+        if self.low_latency.can_play(path):
+            try:
+                playback_id = self.low_latency.play(sound_id, path, effective_volume)
+                self.logger.info(
+                    "low latency playback queued playback_id=%s sound_id=%s path=%s volume=%.3f",
+                    playback_id,
+                    sound_id,
+                    path,
+                    effective_volume,
+                )
+                self._schedule_playback_timeout(playback_id)
+                return playback_id
+            except Exception as exc:
+                self.logger.warning(
+                    "low latency playback unavailable sound_id=%s path=%s error=%s",
+                    sound_id,
+                    path,
+                    exc,
+                )
 
         backends = candidate_backends(path, self.backends)
         self.logger.info(
             "playback backend probe sound_id=%s suffix=%s candidates=%s all_backends=%s",
             sound_id,
-            path.suffix.lower(),
+            suffix,
             [backend.name for backend in backends],
             backend_probe_for_log(path, self.backends),
         )
         if not backends:
-            raise RuntimeError(f"no playback backend can play {path.suffix.lower()}")
+            raise RuntimeError(f"no playback backend can play {suffix}")
 
-        effective_volume = volume if volume is not None else self.settings.master_volume
         errors: list[str] = []
         for backend in backends:
             commands = [backend.build_command(path, effective_volume, target=SINK_NAME)]
@@ -399,6 +679,7 @@ class PlaybackManager:
                 backend.name,
                 [process.pid for process in processes],
             )
+            self._schedule_playback_timeout(playback_id)
             if audio_snapshot_logging_enabled():
                 self.logger.info(
                     "playback pipewire snapshot playback_id=%s sound_id=%s snapshot=%s",
@@ -410,19 +691,37 @@ class PlaybackManager:
         self.logger.error("playback failed sound_id=%s errors=%s", sound_id, errors)
         raise RuntimeError("playback failed: " + "; ".join(errors))
 
-    def stop_all(self) -> None:
+    def stop_all(self, *, reason: str = "manual_stop") -> None:
+        self.low_latency.stop_all()
         for playback_id in list(self.playbacks):
-            self.stop_playback(playback_id)
+            self.stop_playback(playback_id, reason=reason)
 
-    def stop_sound(self, sound_id: str) -> None:
+    def stop_sound(self, sound_id: str, *, reason: str = "manual_stop") -> None:
+        self.low_latency.stop_sound(sound_id)
         for playback_id, playback in list(self.playbacks.items()):
             if playback.sound_id == sound_id:
-                self.stop_playback(playback_id)
+                self.stop_playback(playback_id, reason=reason)
 
-    def stop_playback(self, playback_id: str) -> None:
+    def stop_playback(self, playback_id: str, *, reason: str = "manual_stop") -> None:
+        if playback_id.startswith("ll_"):
+            if self.low_latency.stop_playback(playback_id):
+                self.logger.info(
+                    "low latency playback stopped playback_id=%s reason=%s",
+                    playback_id,
+                    reason,
+                )
+            return
         playback = self.playbacks.pop(playback_id, None)
         if playback is None:
             return
+        self.logger.info(
+            "playback stopped playback_id=%s sound_id=%s backend=%s path=%s reason=%s",
+            playback_id,
+            playback.sound_id,
+            playback.backend_name,
+            playback.path,
+            reason,
+        )
         terminate_process_groups(playback.group_pids)
         for process in playback.processes:
             try:
@@ -430,6 +729,18 @@ class PlaybackManager:
             except subprocess.TimeoutExpired:
                 pass
             self._close_stderr(process)
+
+    def _schedule_playback_timeout(self, playback_id: str) -> None:
+        timer = threading.Timer(
+            self.settings.max_playback_seconds,
+            self._stop_playback_due_to_time_limit,
+            args=(playback_id,),
+        )
+        timer.daemon = True
+        timer.start()
+
+    def _stop_playback_due_to_time_limit(self, playback_id: str) -> None:
+        self.stop_playback(playback_id, reason="time_limit")
 
     def _collect_finished(self) -> None:
         for playback_id, playback in list(self.playbacks.items()):
@@ -467,23 +778,6 @@ class PlaybackManager:
                 env=env,
             )
         ]
-
-    def _force_sink_inputs_to_virtual_mic_sink(
-        self, processes: list[subprocess.Popen[bytes]]
-    ) -> None:
-        pids = [process.pid for process in processes]
-        moved = move_sink_inputs_to_sink(pids, SINK_NAME)
-        if moved:
-            self.logger.info(
-                "playback sink inputs pinned to DeckSoundpad mic bus sink_inputs=%s pids=%s",
-                moved,
-                pids,
-            )
-        else:
-            self.logger.info(
-                "no Pulse sink-inputs found to move; playback may be native PipeWire pids=%s",
-                pids,
-            )
 
     def _spawn_pipeline(
         self,
@@ -549,6 +843,8 @@ class PlaybackManager:
             return
 
     def playback_backend_name(self, playback_id: str) -> str | None:
+        if playback_id.startswith("ll_"):
+            return self.low_latency.name
         playback = self.playbacks.get(playback_id)
         return playback.backend_name if playback else None
 
@@ -604,48 +900,6 @@ def pipewire_stream_snapshot_for_log() -> dict[str, object]:
     }
 
 
-def move_sink_inputs_to_sink(pids: list[int], sink_name: str) -> list[int]:
-    if not pids or not command_exists("pactl"):
-        return []
-    env = decky_runtime_env()
-    result = run_capture(
-        ["pactl", "list", "sink-inputs"],
-        timeout=SINK_INPUT_LIST_TIMEOUT,
-        env=env,
-    )
-    if not result.ok:
-        return []
-    sink_input_ids = parse_sink_input_ids_for_pids(result.stdout, pids)
-    moved: list[int] = []
-    for sink_input_id in sink_input_ids:
-        move_result = run_capture(
-            ["pactl", "move-sink-input", str(sink_input_id), sink_name],
-            timeout=SINK_INPUT_MOVE_TIMEOUT,
-            env=env,
-        )
-        if move_result.ok:
-            moved.append(sink_input_id)
-    return moved
-
-
-def parse_sink_input_ids_for_pids(output: str, pids: list[int]) -> list[int]:
-    wanted = {str(pid) for pid in pids}
-    found: list[int] = []
-    current_id: int | None = None
-    for line in output.splitlines():
-        header = re.match(r"\s*Sink Input #(\d+)", line)
-        if header:
-            current_id = int(header.group(1))
-            continue
-        if current_id is None:
-            continue
-        process_id = re.search(r'application\.process\.id\s*=\s*"([^"]+)"', line)
-        if process_id and process_id.group(1) in wanted:
-            found.append(current_id)
-            current_id = None
-    return found
-
-
 def capture_for_log(args: Sequence[str], *, env: dict[str, str]) -> dict[str, object]:
     result = run_capture(args, timeout=0.5, env=env)
     stdout = result.stdout.strip()
@@ -675,21 +929,3 @@ def terminate_process_groups(
             killpg(pid, signal.SIGKILL)
         except (PermissionError, ProcessLookupError):
             continue
-
-
-def terminate_process_group(
-    pid: int,
-    *,
-    grace_seconds: float = 0.5,
-    killpg=os.killpg,
-    sleeper=time.sleep,
-) -> None:
-    try:
-        killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    sleeper(grace_seconds)
-    try:
-        killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return

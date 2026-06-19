@@ -15,7 +15,6 @@ class AppPaths:
     settings_dir: Path
     runtime_dir: Path
     log_dir: Path
-    data_dir: Path
     user_home: Path
 
     @property
@@ -27,14 +26,6 @@ class AppPaths:
         return self.plugin_dir / "defaults" / "config.default.json"
 
     @property
-    def token_file(self) -> Path:
-        return self.settings_dir / "token"
-
-    @property
-    def session_file(self) -> Path:
-        return self.runtime_dir / "session.json"
-
-    @property
     def module_state_file(self) -> Path:
         return self.runtime_dir / "audio_modules.json"
 
@@ -43,24 +34,16 @@ class AppPaths:
         return self.runtime_dir / "library_cache.json"
 
     @property
-    def daemon_log_file(self) -> Path:
-        return self.log_dir / "daemon.log"
-
-    @property
-    def plugin_log_file(self) -> Path:
-        return self.log_dir / "decksoundpad.log"
+    def backend_log_file(self) -> Path:
+        return self.log_dir / "backend.log"
 
     @property
     def public_log_dir(self) -> Path:
         return self.user_home / "Public" / "DeckSoundpad" / "logs"
 
     @property
-    def public_daemon_log_file(self) -> Path:
-        return self.public_log_dir / "daemon.log"
-
-    @property
-    def public_daemon_stdio_log_file(self) -> Path:
-        return self.public_log_dir / "daemon-stdio.log"
+    def public_backend_log_file(self) -> Path:
+        return self.public_log_dir / "backend.log"
 
     @property
     def public_bridge_log_file(self) -> Path:
@@ -102,14 +85,11 @@ def resolve_paths(
     if log_dir is None:
         log_dir = user_home / ".local" / "state" / APP_ID / "logs"
 
-    data_dir = user_home / ".local" / "share" / APP_ID
-
     return AppPaths(
         plugin_dir=resolved_plugin_dir,
         settings_dir=settings_dir,
         runtime_dir=runtime_dir,
         log_dir=log_dir,
-        data_dir=data_dir,
         user_home=user_home,
     )
 
@@ -119,7 +99,6 @@ def ensure_app_dirs(paths: AppPaths) -> None:
         paths.settings_dir,
         paths.runtime_dir,
         paths.log_dir,
-        paths.data_dir,
     ):
         directory.mkdir(parents=True, exist_ok=True)
     try:

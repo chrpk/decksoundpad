@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .audio_formats import audio_extension, can_play_supported_extension
 from .audio_router import MIC_NAME, SINK_NAME
 from .config import Settings
 from .models import AudioProbe, AudioSource, AudioStatus
@@ -20,7 +21,7 @@ def simulation_enabled(env: Mapping[str, str] | None = None) -> bool:
 class SimulatedAudioRouter:
     def __init__(self, _paths: AppPaths, settings: Settings):
         self.settings = settings
-        self._default_source = MIC_NAME
+        self._default_source = "simulated_real_mic"
         self._ensured = True
 
     def probe(self) -> AudioProbe:
@@ -49,9 +50,6 @@ class SimulatedAudioRouter:
             ),
         ]
 
-    def detect_real_sources(self) -> list[AudioSource]:
-        return [self.list_sources()[0]]
-
     def detect_real_source(self) -> str | None:
         return "simulated_real_mic"
 
@@ -60,7 +58,6 @@ class SimulatedAudioRouter:
 
     def ensure(self) -> AudioStatus:
         self._ensured = True
-        self.set_default_virtual_mic()
         return self.healthcheck()
 
     def healthcheck(self) -> AudioStatus:
@@ -85,12 +82,6 @@ class SimulatedAudioRouter:
     def teardown(self) -> None:
         self._ensured = False
 
-    def set_default_virtual_mic(self) -> None:
-        self._default_source = MIC_NAME
-
-    def restore_previous_default(self) -> None:
-        self._default_source = "simulated_real_mic"
-
 
 class SimulatedBackend:
     name = "simulated"
@@ -99,7 +90,7 @@ class SimulatedBackend:
         return True
 
     def can_play(self, path: Path) -> bool:
-        return path.suffix.lower() in {".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"}
+        return can_play_supported_extension(path)
 
     def build_command(
         self, path: Path, volume: float, target: str | None = SINK_NAME
@@ -114,7 +105,6 @@ class SimulatedPlayback:
     sound_id: str
     path: Path
     volume: float
-    routes: list[str]
     started_at: float
 
 
@@ -125,6 +115,7 @@ class SimulatedPlaybackManager:
         self.playbacks: dict[str, SimulatedPlayback] = {}
 
     def active_count(self) -> int:
+        self._collect_expired()
         return len(self.playbacks)
 
     def play(
@@ -132,13 +123,13 @@ class SimulatedPlaybackManager:
         sound_id: str,
         path: Path,
         volume: float | None = None,
-        output_target: str | None = None,
     ) -> str:
-        _ = output_target
-        suffix = path.suffix.lower()
+        suffix = audio_extension(path)
         backend = self.backends[0]
         if not backend.can_play(path):
             raise RuntimeError(f"no simulated playback backend can play {suffix}")
+
+        self._collect_expired()
 
         if self.settings.overlap_mode == "single":
             self.stop_all()
@@ -153,7 +144,6 @@ class SimulatedPlaybackManager:
             sound_id=sound_id,
             path=path,
             volume=volume if volume is not None else self.settings.master_volume,
-            routes=["virtual_mic"],
             started_at=time.time(),
         )
         return playback_id
@@ -168,3 +158,9 @@ class SimulatedPlaybackManager:
 
     def stop_playback(self, playback_id: str) -> None:
         self.playbacks.pop(playback_id, None)
+
+    def _collect_expired(self) -> None:
+        now = time.time()
+        for playback_id, playback in list(self.playbacks.items()):
+            if now - playback.started_at >= self.settings.max_playback_seconds:
+                self.playbacks.pop(playback_id, None)

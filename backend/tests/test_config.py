@@ -20,7 +20,6 @@ class ConfigTests(unittest.TestCase):
             json.dumps(
                 {
                     "library_dirs": ["~/Music/DeckSoundpad"],
-                    "web_port": 8787,
                     "master_volume": 1.0,
                 }
             ),
@@ -31,7 +30,6 @@ class ConfigTests(unittest.TestCase):
             settings_dir=root / "settings",
             runtime_dir=root / "runtime",
             log_dir=root / "logs",
-            data_dir=root / "data",
             user_home=root / "home",
         )
 
@@ -39,9 +37,8 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             paths = self.paths(Path(tmp))
             settings = load_config(paths)
-            self.assertEqual(settings.web_port, 8787)
             self.assertEqual(settings.library_dirs, ["~/Music/DeckSoundpad"])
-            self.assertFalse(settings.auth_enabled)
+            self.assertEqual(settings.max_playback_seconds, 30.0)
             self.assertFalse(settings.background_healthcheck_enabled)
             self.assertTrue(paths.config_file.exists())
 
@@ -49,30 +46,42 @@ class ConfigTests(unittest.TestCase):
         settings = Settings()
         patched = patch_settings(settings, {"master_volume": 1.25})
         self.assertEqual(patched.master_volume, 1.25)
-        route_patched = patch_settings(
-            settings,
-            {
-                "mic_passthrough_enabled": False,
-                "play_to_output": True,
-                "set_default_source": False,
-            },
-        )
+        route_patched = patch_settings(settings, {"mic_passthrough_enabled": False})
         self.assertFalse(route_patched.mic_passthrough_enabled)
-        self.assertFalse(route_patched.play_to_output)
-        self.assertTrue(route_patched.set_default_source)
         healthcheck_patched = patch_settings(settings, {"background_healthcheck_enabled": True})
         self.assertTrue(healthcheck_patched.background_healthcheck_enabled)
+        time_patched = patch_settings(settings, {"max_playback_seconds": 45})
+        self.assertEqual(time_patched.max_playback_seconds, 45.0)
         with self.assertRaises(ValueError):
             patch_settings(settings, {"master_volume": 2.0})
         with self.assertRaises(ValueError):
+            patch_settings(settings, {"max_playback_seconds": 0})
+        with self.assertRaises(ValueError):
             patch_settings(settings, {"unknown": True})
+
+    def test_legacy_single_mode_config_migrates_to_overlap_with_time_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self.paths(Path(tmp))
+            ensure_app_dirs(paths)
+            paths.config_file.write_text(
+                json.dumps({"overlap_mode": "single", "max_concurrent_sounds": 6}),
+                encoding="utf-8",
+            )
+
+            settings = load_config(paths)
+
+            self.assertEqual(settings.overlap_mode, "overlap")
+            self.assertEqual(settings.max_playback_seconds, 30.0)
+            saved = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved["overlap_mode"], "overlap")
+            self.assertEqual(saved["max_playback_seconds"], 30.0)
 
     def test_config_save_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = self.paths(Path(tmp))
-            settings = Settings(web_port=8790)
+            settings = Settings(master_volume=0.9)
             save_config(paths, settings)
-            self.assertEqual(load_config(paths).web_port, 8790)
+            self.assertEqual(load_config(paths).master_volume, 0.9)
 
     def test_public_log_dir_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

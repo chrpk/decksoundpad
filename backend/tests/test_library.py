@@ -19,7 +19,6 @@ class LibraryTests(unittest.TestCase):
             settings_dir=root / "settings",
             runtime_dir=root / "runtime",
             log_dir=root / "logs",
-            data_dir=root / "data",
             user_home=root / "home",
         )
 

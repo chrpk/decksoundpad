@@ -1,12 +1,16 @@
 import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
 import { useState } from "react";
 import { FaTools } from "react-icons/fa";
-import { repairAudioAndWait, startDaemon } from "../api/decky";
+import { repairAudioAndWait, startBackend } from "../api/decky";
 import { DeckSoundpadStatus } from "../types";
+import { delay } from "../utils/timing";
 
 interface StatusCardProps {
   status: DeckSoundpadStatus | null;
   loading: boolean;
+}
+
+interface RepairAudioRoutingPanelProps {
   onStatus: (status: DeckSoundpadStatus) => void;
   onError: (message: string) => void;
   onActivity: (message: string) => void;
@@ -19,14 +23,14 @@ function statusLabel(status: DeckSoundpadStatus | null, loading: boolean): strin
   if (!status) {
     return "Safe start";
   }
-  if (!status?.daemon_running) {
-    return "Daemon starting";
+  if (!isBackendRunning(status)) {
+    return "Backend starting";
   }
   if (status.audio.state === "starting" || status.audio.state === "repairing") {
     return "Audio repair running";
   }
   if (status.audio.last_error === "Audio status pending") {
-    return "Daemon running";
+    return "Backend running";
   }
   if (!status.audio.pactl_available || !status.audio.pipewire_available) {
     return "PipeWire/PulseAudio unavailable";
@@ -49,36 +53,57 @@ function statusLabel(status: DeckSoundpadStatus | null, loading: boolean): strin
   return status.audio.state ?? "Ready";
 }
 
-export function StatusCard({ status, loading, onStatus, onError, onActivity }: StatusCardProps) {
-  const [busy, setBusy] = useState(false);
+function statusTone(status: DeckSoundpadStatus | null, loading: boolean): "good" | "pending" | "bad" {
+  if (loading && !status) {
+    return "pending";
+  }
+  if (!status || !isBackendRunning(status)) {
+    return "bad";
+  }
+  if (status.audio.state === "starting" || status.audio.state === "repairing" || status.audio.state === "pending") {
+    return "pending";
+  }
+  if (status.audio.state === "ready") {
+    return "good";
+  }
+  return "bad";
+}
+
+export function StatusCard({ status, loading }: StatusCardProps) {
   const label = statusLabel(status, loading);
-  const details = status
-    ? `Sounds ${status.library.count} | Active ${status.player.active_playbacks}`
-    : "Waiting for backend";
-  const inputLabel = status?.audio.selected_real_mic_description ?? status?.audio.selected_real_mic ?? "No mic detected";
+  const tone = statusTone(status, loading);
 
   return (
     <PanelSection title="Status">
       <PanelSectionRow>
         <div style={statusStackStyle}>
-          <strong>{label}</strong>
-          <span style={{ opacity: 0.76, fontSize: "12px" }}>{details}</span>
-          <span style={routeLineStyle}>DeckSoundpad mic: Steam Deck mic + clicked sounds</span>
-          <span style={routeLineStyle}>Mic: {inputLabel}</span>
+          <div style={statusHeaderStyle}>
+            <span style={statusDotStyle[tone]} />
+            <strong>{label}</strong>
+          </div>
           {status?.audio.last_error ? (
             <span style={{ color: "#ffb86b", fontSize: "12px" }}>{status.audio.last_error}</span>
           ) : null}
         </div>
       </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
+export function RepairAudioRoutingPanel({ onStatus, onError, onActivity }: RepairAudioRoutingPanelProps) {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <PanelSection title="Audio routing">
       <PanelSectionRow>
         <ButtonItem
           layout="below"
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            onActivity("Starting daemon for audio initialization");
+            onActivity("Starting backend for audio initialization");
             try {
-              await startDaemon();
+              await startBackend();
               await delay(700);
               onActivity("Audio initialization requested");
               const nextStatus = await repairAudioAndWait(onStatus);
@@ -105,10 +130,6 @@ export function StatusCard({ status, loading, onStatus, onError, onActivity }: S
   );
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 const statusStackStyle = {
   display: "flex",
   flexDirection: "column",
@@ -116,9 +137,39 @@ const statusStackStyle = {
   minWidth: 0,
 } as const;
 
-const routeLineStyle = {
-  opacity: 0.78,
-  fontSize: "12px",
-  lineHeight: "1.3",
-  overflowWrap: "anywhere",
+function isBackendRunning(status: DeckSoundpadStatus | null): boolean {
+  return Boolean(status?.backend_running);
+}
+
+const statusHeaderStyle = {
+  alignItems: "center",
+  display: "flex",
+  gap: "8px",
+  minWidth: 0,
+} as const;
+
+const statusDotBaseStyle = {
+  borderRadius: "999px",
+  display: "inline-block",
+  flex: "0 0 auto",
+  height: "10px",
+  width: "10px",
+} as const;
+
+const statusDotStyle = {
+  good: {
+    ...statusDotBaseStyle,
+    backgroundColor: "#59d185",
+    boxShadow: "0 0 0 2px rgba(89, 209, 133, 0.22)",
+  },
+  pending: {
+    ...statusDotBaseStyle,
+    backgroundColor: "#ffb86b",
+    boxShadow: "0 0 0 2px rgba(255, 184, 107, 0.22)",
+  },
+  bad: {
+    ...statusDotBaseStyle,
+    backgroundColor: "#ff6b6b",
+    boxShadow: "0 0 0 2px rgba(255, 107, 107, 0.22)",
+  },
 } as const;

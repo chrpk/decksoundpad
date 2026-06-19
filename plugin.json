@@ -1,10 +1,10 @@
 {
   "name": "DeckSoundpad",
   "author": "DeckSoundpad contributors",
-  "flags": [],
+  "flags": ["root"],
   "api_version": 1,
   "publish": {
     "tags": ["soundboard", "audio", "pipewire", "microphone"],
-    "description": "Steam Deck soundboard with Decky and LAN web controls."
+    "description": "Steam Deck soundboard with Decky controls and PipeWire microphone routing."
   }
 }

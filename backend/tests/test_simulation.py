@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from decksoundpad.api_server import DeckSoundpadApp
+from decksoundpad.app import DeckSoundpadApp
 from decksoundpad.paths import AppPaths
 from decksoundpad.simulation import SimulatedAudioRouter, SimulatedPlaybackManager, simulation_enabled
 
@@ -24,9 +24,6 @@ def make_paths(root: Path) -> AppPaths:
         json.dumps(
             {
                 "library_dirs": [str(root / "sounds")],
-                "web_host": "127.0.0.1",
-                "web_port": 8787,
-                "auth_enabled": True,
                 "max_concurrent_sounds": 2,
             }
         ),
@@ -37,7 +34,6 @@ def make_paths(root: Path) -> AppPaths:
         settings_dir=root / "settings",
         runtime_dir=root / "runtime",
         log_dir=root / "logs",
-        data_dir=root / "data",
         user_home=root / "home",
     )
 
@@ -59,11 +55,13 @@ class SimulationTests(unittest.TestCase):
             self.assertIsInstance(app.player, SimulatedPlaybackManager)
 
             status = app.status()
-            self.assertTrue(status["daemon_running"])
+            self.assertTrue(status["backend_running"])
             self.assertEqual(status["player"]["backend"], "simulated")
             self.assertTrue(status["audio"]["sink_exists"])
             self.assertTrue(status["audio"]["virtual_mic_exists"])
             self.assertEqual(status["audio"]["selected_real_mic"], "simulated_real_mic")
+            self.assertEqual(status["audio"]["default_source"], "simulated_real_mic")
+            self.assertFalse(status["audio"]["is_default_source"])
 
     def test_simulated_play_and_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,18 +80,6 @@ class SimulationTests(unittest.TestCase):
             stop_response = app.stop({"playback_id": None, "sound_id": None})
             self.assertTrue(stop_response["ok"])
             self.assertEqual(app.player.active_count(), 0)
-
-    def test_simulated_play_ignores_output_route(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch.dict(os.environ, {"DECKSOUNDPAD_SIMULATE": "1"}):
-                app = DeckSoundpadApp(make_paths(Path(tmp)))
-            app.update_settings({"play_to_output": True})
-
-            sounds = app.refresh_library()["sounds"]
-            play_response = app.play_sound({"sound_id": sounds[0]["id"]})
-            playback = app.player.playbacks[play_response["playback_id"]]
-            self.assertFalse(app.settings.play_to_output)
-            self.assertEqual(playback.routes, ["virtual_mic"])
 
     def test_simulated_diagnostics_are_marked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

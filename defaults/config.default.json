@@ -1,20 +1,13 @@
 {
   "library_dirs": ["~/Music/DeckSoundpad"],
-  "web_host": "0.0.0.0",
-  "web_port": 8787,
-  "auth_enabled": false,
   "master_volume": 1.0,
   "overlap_mode": "overlap",
   "max_concurrent_sounds": 3,
+  "max_playback_seconds": 30.0,
   "selected_mic_source": null,
   "mic_passthrough_enabled": true,
-  "set_default_source": true,
-  "play_to_output": false,
-  "restore_previous_default_on_unload": true,
   "auto_repair_on_resume": true,
   "background_healthcheck_enabled": false,
   "allowed_extensions": [".wav", ".flac", ".ogg", ".mp3"],
-  "allow_symlinks_outside_libraries": false,
-  "auto_port": true,
-  "stop_daemon_on_plugin_unload": false
+  "allow_symlinks_outside_libraries": false
 }

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, replace
-from typing import Protocol, Sequence
+from dataclasses import asdict, dataclass, fields, replace
+from typing import Callable, Protocol, Sequence, TypeVar
 
 from .config import Settings
 from .models import AudioModule, AudioProbe, AudioSource, AudioStatus
@@ -22,6 +22,7 @@ PACTL_FAST_LIST_TIMEOUT = 0.75
 PACTL_LOAD_TIMEOUT = 3.0
 PACTL_UNLOAD_TIMEOUT = 1.5
 PACTL_DEFAULT_TIMEOUT = 1.0
+ParsedPactlResult = TypeVar("ParsedPactlResult")
 
 
 class CommandRunner(Protocol):
@@ -38,7 +39,6 @@ class ModuleState:
     null_sink_module_id: int | None = None
     remap_source_module_id: int | None = None
     loopback_module_id: int | None = None
-    created_at: str | None = None
 
 
 def parse_pactl_sources_short(output: str) -> list[AudioSource]:
@@ -123,20 +123,6 @@ def parse_pactl_names_short(output: str) -> set[str]:
             parts = line.split(maxsplit=2)
         if len(parts) >= 2:
             names.add(parts[1])
-    return names
-
-
-def parse_pactl_names_json(output: str) -> set[str]:
-    try:
-        value = json.loads(output)
-    except json.JSONDecodeError:
-        return set()
-    if not isinstance(value, list):
-        return set()
-    names: set[str] = set()
-    for entry in value:
-        if isinstance(entry, dict) and isinstance(entry.get("name"), str):
-            names.add(entry["name"])
     return names
 
 
@@ -239,58 +225,31 @@ class AudioRouter:
         )
 
     def list_sources(self) -> list[AudioSource]:
-        result = self.runner.run(
+        return self._list_with_json_fallback(
             ["pactl", "-f", "json", "list", "sources"],
-            timeout=PACTL_LIST_TIMEOUT,
-        )
-        if result.ok and result.stdout.strip():
-            sources = parse_pactl_sources_json(result.stdout)
-            if sources:
-                return sources
-        result = self.runner.run(
+            parse_pactl_sources_json,
             ["pactl", "list", "sources", "short"],
-            timeout=PACTL_LIST_TIMEOUT,
+            parse_pactl_sources_short,
+            empty=[],
         )
-        if not result.ok:
-            return []
-        return parse_pactl_sources_short(result.stdout)
 
     def list_sinks(self) -> list[AudioSource]:
-        result = self.runner.run(
+        return self._list_with_json_fallback(
             ["pactl", "-f", "json", "list", "sinks"],
-            timeout=PACTL_LIST_TIMEOUT,
-        )
-        if result.ok and result.stdout.strip():
-            sinks = parse_pactl_sources_json(result.stdout)
-            if sinks:
-                return sinks
-        result = self.runner.run(
+            parse_pactl_sources_json,
             ["pactl", "list", "sinks", "short"],
-            timeout=PACTL_LIST_TIMEOUT,
+            parse_pactl_sources_short,
+            empty=[],
         )
-        if not result.ok:
-            return []
-        return parse_pactl_sources_short(result.stdout)
 
     def list_modules(self) -> list[AudioModule]:
-        result = self.runner.run(
+        return self._list_with_json_fallback(
             ["pactl", "-f", "json", "list", "modules"],
-            timeout=PACTL_LIST_TIMEOUT,
-        )
-        if result.ok and result.stdout.strip():
-            modules = parse_pactl_modules_json(result.stdout)
-            if modules:
-                return modules
-        result = self.runner.run(
+            parse_pactl_modules_json,
             ["pactl", "list", "modules", "short"],
-            timeout=PACTL_LIST_TIMEOUT,
+            parse_pactl_modules_short,
+            empty=[],
         )
-        if not result.ok:
-            return []
-        return parse_pactl_modules_short(result.stdout)
-
-    def detect_real_sources(self) -> list[AudioSource]:
-        return [source for source in self.list_sources() if source_is_real_mic(source.name)]
 
     def detect_real_source(self) -> str | None:
         return self._detect_real_source_from_sources(self.list_sources())
@@ -407,7 +366,6 @@ class AudioRouter:
                 )
 
         self._save_module_state(state)
-        self.set_default_virtual_mic()
         return self.healthcheck()
 
     def repair(self) -> AudioStatus:
@@ -419,30 +377,6 @@ class AudioRouter:
         for module in modules:
             self.runner.run(["pactl", "unload-module", str(module.id)], timeout=PACTL_UNLOAD_TIMEOUT)
         self._save_module_state(ModuleState())
-
-    def set_default_virtual_mic(self) -> None:
-        self.runner.run(["pactl", "set-default-source", MIC_NAME])
-
-    def restore_previous_default(self) -> None:
-        # Filled in when daemon settings persistence is implemented.
-        return None
-
-    def _list_sink_names(self) -> set[str]:
-        result = self.runner.run(
-            ["pactl", "-f", "json", "list", "sinks"],
-            timeout=PACTL_LIST_TIMEOUT,
-        )
-        if result.ok and result.stdout.strip():
-            names = parse_pactl_names_json(result.stdout)
-            if names:
-                return names
-        result = self.runner.run(
-            ["pactl", "list", "sinks", "short"],
-            timeout=PACTL_LIST_TIMEOUT,
-        )
-        if not result.ok:
-            return set()
-        return parse_pactl_names_short(result.stdout)
 
     def _load_null_sink(self) -> int | None:
         result = self.runner.run(
@@ -506,32 +440,62 @@ class AudioRouter:
     def _wait_for_sink(
         self, sink_name: str, *, attempts: int = 8, delay_seconds: float = 0.15
     ) -> bool:
-        for attempt in range(attempts):
-            if self._sink_exists(sink_name):
-                return True
-            if attempt < attempts - 1:
-                time.sleep(delay_seconds)
-        return False
+        return self._wait_for(
+            lambda: self._sink_exists(sink_name),
+            attempts=attempts,
+            delay_seconds=delay_seconds,
+        )
 
     def _wait_for_source(
         self, source_name: str, *, attempts: int = 8, delay_seconds: float = 0.15
     ) -> bool:
+        return self._wait_for(
+            lambda: self._source_exists(source_name),
+            attempts=attempts,
+            delay_seconds=delay_seconds,
+        )
+
+    def _wait_for_loopback(
+        self, source: str, *, attempts: int = 6, delay_seconds: float = 0.15
+    ) -> bool:
+        return self._wait_for(
+            lambda: self._loopback_module(self._list_modules_short_fast(), source=source) is not None,
+            attempts=attempts,
+            delay_seconds=delay_seconds,
+        )
+
+    @staticmethod
+    def _wait_for(
+        predicate: Callable[[], bool],
+        *,
+        attempts: int,
+        delay_seconds: float,
+    ) -> bool:
         for attempt in range(attempts):
-            if self._source_exists(source_name):
+            if predicate():
                 return True
             if attempt < attempts - 1:
                 time.sleep(delay_seconds)
         return False
 
-    def _wait_for_loopback(
-        self, source: str, *, attempts: int = 6, delay_seconds: float = 0.15
-    ) -> bool:
-        for attempt in range(attempts):
-            if self._loopback_module(self._list_modules_short_fast(), source=source) is not None:
-                return True
-            if attempt < attempts - 1:
-                time.sleep(delay_seconds)
-        return False
+    def _list_with_json_fallback(
+        self,
+        json_args: list[str],
+        json_parser: Callable[[str], ParsedPactlResult],
+        short_args: list[str],
+        short_parser: Callable[[str], ParsedPactlResult],
+        *,
+        empty: ParsedPactlResult,
+    ) -> ParsedPactlResult:
+        result = self.runner.run(json_args, timeout=PACTL_LIST_TIMEOUT)
+        if result.ok and result.stdout.strip():
+            parsed = json_parser(result.stdout)
+            if parsed:
+                return parsed
+        result = self.runner.run(short_args, timeout=PACTL_LIST_TIMEOUT)
+        if not result.ok:
+            return empty
+        return short_parser(result.stdout)
 
     def _load_loopback(self, source: str) -> int | None:
         result = self.runner.run(
@@ -610,7 +574,11 @@ class AudioRouter:
         try:
             with self.paths.module_state_file.open("r", encoding="utf-8") as handle:
                 value = json.load(handle)
-            return ModuleState(**value) if isinstance(value, dict) else ModuleState()
+            if not isinstance(value, dict):
+                return ModuleState()
+            field_names = {field.name for field in fields(ModuleState)}
+            payload = {name: value[name] for name in field_names if name in value}
+            return ModuleState(**payload)
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             return ModuleState()
 
