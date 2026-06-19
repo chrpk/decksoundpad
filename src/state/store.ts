@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getSettings, getStatus, refreshLibrary, startBackend } from "../api/decky";
-import { DeckSoundpadStatus, Settings, SoundItem } from "../types";
+import { DeckSoundpadStatus, Settings } from "../types";
 import { delay } from "../utils/timing";
 
 export function useDeckSoundpadData(onActivity?: (message: string) => void) {
   const [status, setStatus] = useState<DeckSoundpadStatus | null>(null);
-  const [sounds, setSounds] = useState<SoundItem[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,10 +47,6 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
     [onActivity],
   );
 
-  const reload = useCallback(async () => {
-    await loadStatus({ showLoading: true });
-  }, [loadStatus]);
-
   const loadSettings = useCallback(async () => {
     try {
       setSettings(await getSettings());
@@ -60,31 +54,6 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
       setSettings(null);
     }
   }, []);
-
-  const start = useCallback(async () => {
-    setError(null);
-    onActivity?.("Starting backend");
-    try {
-      const nextStatus = await startBackend();
-      setStatus(nextStatus);
-      onActivity?.("Backend start requested");
-      window.setTimeout(() => {
-        void reload();
-        void refreshLibrary()
-          .then((response) => {
-            if (response.ok) {
-              setSounds(response.sounds);
-              onActivity?.(`Sound library loaded: ${response.sounds.length} sounds`);
-            }
-          })
-          .catch(() => undefined);
-      }, 900);
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Unable to start DeckSoundpad";
-      onActivity?.(`Backend start failed: ${message}`);
-      setError(message);
-    }
-  }, [onActivity, reload]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -97,7 +66,6 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
       }
       const response = await refreshLibrary();
       if (response.ok) {
-        setSounds(response.sounds);
         onActivity?.(`Sound library loaded: ${response.sounds.length} sounds`);
       } else {
         setError(response.error ?? "Library refresh failed");
@@ -124,29 +92,11 @@ export function useDeckSoundpadData(onActivity?: (message: string) => void) {
     return () => window.clearInterval(statusTimer);
   }, [loadSettings, loadStatus, onActivity]);
 
-  const filteredSounds = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) {
-      return sounds;
-    }
-    return sounds.filter((sound) =>
-      `${sound.display_name} ${sound.category} ${sound.relative_path}`
-        .toLowerCase()
-        .includes(normalized),
-    );
-  }, [query, sounds]);
-
   return {
     status,
     settings,
-    sounds,
-    filteredSounds,
-    query,
-    setQuery,
     loading,
     error,
-    start,
-    reload,
     refresh,
     setStatus,
     setError,

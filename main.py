@@ -207,34 +207,6 @@ class Plugin:
         self._request_backend_start_background()
         return await self.get_status()
 
-    async def list_sounds(self) -> dict[str, Any]:
-        return await self._call_backend(
-            "sounds",
-            lambda app: app.list_sounds(),
-            fallback={"ok": False, "sounds": [], "error": "backend unavailable"},
-        )
-
-    async def play_sound(
-        self, sound_id: str, volume: float | None = None
-    ) -> dict[str, Any]:
-        payload = {"sound_id": sound_id, "volume": volume}
-        self._append_bridge_log(f"play_sound called sound_id={sound_id} volume={volume}")
-        return await self._call_backend(
-            "play",
-            lambda app: app.play_sound(payload),
-            fallback={"ok": False, "error": "backend unavailable"},
-            payload=payload,
-        )
-
-    async def stop_all(self) -> dict[str, Any]:
-        payload = {"playback_id": None, "sound_id": None}
-        return await self._call_backend(
-            "stop",
-            lambda app: app.stop(payload),
-            fallback={"ok": False, "error": "backend unavailable"},
-            payload=payload,
-        )
-
     async def refresh_library(self) -> dict[str, Any]:
         return await self._call_backend(
             "sounds_refresh",
@@ -277,51 +249,6 @@ class Plugin:
         except Exception:
             self.settings = load_config(self.paths)
         return result
-
-    async def get_logs_tail(self, lines: int = 120) -> dict[str, Any]:
-        safe_lines = max(1, min(int(lines), 500))
-        try:
-            response = await self._call_backend(
-                "logs_tail",
-                lambda app: app.tail_logs(safe_lines),
-                fallback={"ok": False, "lines": ["backend unavailable"]},
-                payload={"lines": safe_lines},
-            )
-        except Exception as exc:
-            self._record_bridge_exception("get_logs_tail", exc)
-            response = {"ok": False, "lines": ["backend unavailable"]}
-        bridge_lines = self._bridge_log_lines()
-        return {
-            **response,
-            "public_log_dir": self._public_log_dir(),
-            "lines": bridge_lines + list(response.get("lines") or []),
-        }
-
-    async def get_diagnostics(self) -> dict[str, Any]:
-        return await self._call_backend(
-            "diagnostics",
-            lambda app: {"ok": True, "diagnostics": app.diagnostics()},
-            fallback={"ok": False, "diagnostics": {"error": "backend unavailable"}},
-        )
-
-    async def log_input_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        summary = input_event_summary_for_log(payload)
-        self._append_bridge_log("input " + format_log_fields(summary))
-        return {"ok": True}
-
-    async def toggle_external_overlay(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        try:
-            return await asyncio.to_thread(self._toggle_external_overlay_sync, payload or {})
-        except Exception as exc:
-            self._record_bridge_exception("toggle_external_overlay", exc)
-            return self._external_overlay_failure_response(exc)
-
-    async def external_overlay_input(self, action: str) -> dict[str, Any]:
-        try:
-            return await asyncio.to_thread(self._external_overlay_input_sync, action)
-        except Exception as exc:
-            self._record_bridge_exception("external_overlay_input", exc)
-            return self._external_overlay_failure_response(exc)
 
     def _create_backend(self) -> DeckSoundpadApp:
         return DeckSoundpadApp(self.paths, settings=self.settings, logger=self.logger)
@@ -1451,20 +1378,6 @@ class Plugin:
         except Exception as exc:
             self._record_bridge_exception(f"handle R5 direct previous sound source={source}", exc)
 
-    def _emit_l5_shortcut(self, source: str) -> None:
-        self._append_bridge_log(
-            f"L5 shortcut detected source={source} {self._backend_steam_overlay_log_fragment()}"
-        )
-        try:
-            asyncio.run(
-                decky.emit(
-                    "l5_shortcut",
-                    {"source": source, "timestamp": time.time()},
-                )
-            )
-        except Exception as exc:
-            self._record_bridge_exception("emit l5_shortcut", exc)
-
     def _fallback_status(self, last_error: str) -> dict[str, Any]:
         mic_passthrough_enabled = False
         try:
@@ -1518,10 +1431,6 @@ class Plugin:
             del errors[:-120]
         self._write_public_bridge_log(entry)
 
-    def _bridge_log_lines(self) -> list[str]:
-        errors = list(getattr(self, "_bridge_errors", []))
-        return ["Bridge", *errors, ""] if errors else []
-
     def _write_public_bridge_log(self, line: str) -> None:
         paths = getattr(self, "paths", None)
         if paths is None:
@@ -1549,25 +1458,16 @@ class Plugin:
             f"response={response_summary_for_log(response)}"
         )
 
-    def _public_log_dir(self) -> str | None:
-        paths = getattr(self, "paths", None)
-        if paths is None:
-            return None
-        return str(paths.public_log_dir)
-
     def _backend_steam_overlay_log_fragment(self) -> str:
         return "steam_overlay_open=unknown steam_overlay_source=backend-os-input"
 
 
 def bridge_action_is_interesting(action: str) -> bool:
     return action in {
-        "play",
-        "sounds",
         "sounds_refresh",
         "audio_ensure",
         "audio_repair",
         "settings_update",
-        "logs_tail",
     }
 
 
@@ -1626,58 +1526,6 @@ def response_summary_for_log(response: dict[str, Any]) -> dict[str, Any]:
         }
     if not summary:
         summary["keys"] = sorted(response)
-    return summary
-
-
-def input_event_summary_for_log(payload: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        return {"invalid_payload": clean_log_text(type(payload).__name__)}
-
-    summary: dict[str, Any] = {}
-    for key in (
-        "source",
-        "phase",
-        "button",
-        "key",
-        "code",
-        "repeat",
-        "controller_index",
-        "buttons_mask",
-        "pointer_type",
-        "pointer_button",
-        "target",
-        "frontend_timestamp",
-    ):
-        if key in payload:
-            summary[key] = sanitize_log_value(payload.get(key))
-
-    available = payload.get("available")
-    if isinstance(available, dict):
-        summary["available"] = {
-            clean_log_text(str(key), 48): bool(value)
-            for key, value in list(available.items())[:20]
-        }
-
-    steam_overlay = payload.get("steam_overlay")
-    if isinstance(steam_overlay, dict):
-        summary["steam_overlay_open"] = bool_or_unknown(steam_overlay.get("open"))
-        summary["quick_access_open"] = bool_or_unknown(steam_overlay.get("quick_access_open"))
-        summary["main_menu_open"] = bool_or_unknown(steam_overlay.get("main_menu_open"))
-        summary["document_hidden"] = bool_or_unknown(steam_overlay.get("document_hidden"))
-        for key in (
-            "document_visibility",
-            "source",
-            "error",
-            "visible_navigation_tree_ids",
-            "navigation_tree_ids",
-        ):
-            if key in steam_overlay:
-                summary[f"steam_overlay_{key}"] = sanitize_log_value(steam_overlay.get(key))
-    else:
-        summary["steam_overlay_open"] = "unknown"
-
-    if not summary:
-        summary["keys"] = sorted(clean_log_text(str(key), 48) for key in payload.keys())[:20]
     return summary
 
 
@@ -1763,35 +1611,10 @@ def should_grab_overlay_input_device(name: str) -> bool:
     return any(fragment in lowered for fragment in OVERLAY_INPUT_GRAB_NAME_HINTS)
 
 
-def bool_or_unknown(value: Any) -> bool | str:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return "unknown"
-    return bool(value)
-
-
 def clamp_number(value: int, minimum: int, maximum: int) -> int:
     if maximum < minimum:
         return minimum
     return max(minimum, min(maximum, value))
-
-
-def sanitize_log_value(value: Any) -> Any:
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, (int, float)):
-        return value
-    if isinstance(value, str):
-        return clean_log_text(value)
-    if isinstance(value, list):
-        return [sanitize_log_value(item) for item in value[:12]]
-    if isinstance(value, dict):
-        return {
-            clean_log_text(str(key), 48): sanitize_log_value(item)
-            for key, item in list(value.items())[:20]
-        }
-    return clean_log_text(str(value))
 
 
 def clean_log_text(value: str, max_length: int = 160) -> str:
@@ -1799,22 +1622,6 @@ def clean_log_text(value: str, max_length: int = 160) -> str:
     if len(cleaned) <= max_length:
         return cleaned
     return cleaned[: max_length - 1] + "..."
-
-
-def format_log_fields(fields: dict[str, Any]) -> str:
-    return " ".join(f"{key}={format_log_value(value)}" for key, value in fields.items())
-
-
-def format_log_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if value is None:
-        return "null"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, (list, dict)):
-        return clean_log_text(json.dumps(value, ensure_ascii=True, sort_keys=True), 320)
-    return clean_log_text(str(value))
 
 
 def _input_hotkey_monitor_enabled() -> bool:

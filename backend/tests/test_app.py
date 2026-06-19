@@ -186,31 +186,6 @@ class AppTests(unittest.TestCase):
         self.assertEqual(response["master_volume"], 0.75)
         self.assertIn('"master_volume": 0.75', self.paths.config_file.read_text())
 
-    def test_diagnostics_include_audio_task(self) -> None:
-        diagnostics = self.app.diagnostics()
-        self.assertIn("audio_task", diagnostics)
-        self.assertEqual(
-            diagnostics["paths"]["public_log_dir"],  # type: ignore[index]
-            str(self.paths.public_log_dir),
-        )
-        self.assertEqual(
-            diagnostics["log_files"]["public_bridge"],  # type: ignore[index]
-            str(self.paths.public_bridge_log_file),
-        )
-        self.assertNotIn("web", diagnostics)
-
-    def test_log_tail_includes_public_logs(self) -> None:
-        self.paths.public_backend_log_file.write_text("public backend line\n", encoding="utf-8")
-        self.paths.public_bridge_log_file.write_text("public bridge line\n", encoding="utf-8")
-
-        response = self.app.tail_logs(10)
-        self.assertEqual(response["public_log_dir"], str(self.paths.public_log_dir))
-        joined = "\n".join(response["lines"])  # type: ignore[arg-type]
-        self.assertIn("Public backend", joined)
-        self.assertIn("public backend line", joined)
-        self.assertIn("Public bridge", joined)
-        self.assertIn("public bridge line", joined)
-
     def test_play_rejects_unknown_sound_id(self) -> None:
         response = self.app.play_sound({"sound_id": "sha1:nope"})
         self.assertFalse(response["ok"])

@@ -75,14 +75,6 @@ class SoundLibrary:
                 return item
         return None
 
-    def assert_indexed_path(self, path: Path) -> None:
-        resolved = path.resolve()
-        for root in self.roots():
-            root_resolved = root.resolve()
-            if is_relative_to(resolved, root_resolved):
-                return
-        raise LibrarySecurityError(f"path is outside configured libraries: {path}")
-
     def _scan_bundled_sounds(self) -> list[SoundItem]:
         items = list(self._scan_root(self.paths.plugin_dir / "defaults" / "sounds"))
         items.extend(self._scan_packaged_assets())

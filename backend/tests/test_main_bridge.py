@@ -91,12 +91,6 @@ class FakeBackendApp:
         self.settings = patch_settings(self.settings, patch)
         return self.settings.to_dict()
 
-    def tail_logs(self, _lines: int) -> dict[str, object]:
-        return {"ok": True, "public_log_dir": "/tmp/logs", "lines": ["backend line"]}
-
-    def diagnostics(self) -> dict[str, object]:
-        return {"settings": self.settings.to_dict()}
-
 
 class DirectPlugin(Plugin):
     def __init__(self, root: Path) -> None:
@@ -167,20 +161,11 @@ class MainBridgeTests(unittest.TestCase):
             plugin = DirectPlugin(Path(tmp))
             plugin.fake_app.raise_status = True
             response = asyncio.run(plugin.get_status())
-            logs = asyncio.run(plugin.get_logs_tail())
 
         self.assertFalse(response["backend_running"])
         self.assertIn("backend unavailable", response["audio"]["last_error"])  # type: ignore[index]
-        joined = "\n".join(logs["lines"])
+        joined = "\n".join(plugin._bridge_errors)
         self.assertIn("status boom", joined)
-
-    def test_play_sound_calls_backend_directly(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            plugin = DirectPlugin(Path(tmp))
-            response = asyncio.run(plugin.play_sound("sound-1", 0.5))
-
-        self.assertTrue(response["ok"])
-        self.assertEqual(plugin.fake_app.play_payloads, [{"sound_id": "sound-1", "volume": 0.5}])
 
     def test_start_backend_initializes_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,41 +200,6 @@ class MainBridgeTests(unittest.TestCase):
 
         self.assertEqual(response["master_volume"], 0.75)
         self.assertEqual(plugin.settings.master_volume, 0.75)
-
-    def test_get_logs_tail_combines_bridge_and_backend_logs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            plugin = DirectPlugin(Path(tmp))
-            plugin._append_bridge_log("bridge line")
-            response = asyncio.run(plugin.get_logs_tail())
-
-        joined = "\n".join(response["lines"])
-        self.assertIn("bridge line", joined)
-        self.assertIn("backend line", joined)
-
-    def test_log_input_event_includes_steam_overlay_state(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            plugin = DirectPlugin(Path(tmp))
-            response = asyncio.run(
-                plugin.log_input_event(
-                    {
-                        "source": "dom.keydown",
-                        "phase": "press",
-                        "key": "A",
-                        "steam_overlay": {
-                            "open": True,
-                            "quick_access_open": True,
-                            "visible_navigation_tree_ids": ["QuickAccess-NA"],
-                        },
-                    }
-                )
-            )
-            logs = asyncio.run(plugin.get_logs_tail())
-
-        self.assertTrue(response["ok"])
-        joined = "\n".join(logs["lines"])
-        self.assertIn("source=dom.keydown", joined)
-        self.assertIn("steam_overlay_open=true", joined)
-        self.assertIn("QuickAccess-NA", joined)
 
     def test_main_requests_backend_start_on_plugin_load(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

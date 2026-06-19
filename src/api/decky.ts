@@ -1,5 +1,5 @@
 import { callable } from "@decky/api";
-import { DeckSoundpadStatus, Settings, SoundItem } from "../types";
+import { DeckSoundpadStatus, Settings } from "../types";
 import { delay } from "../utils/timing";
 
 type OkResponse<T> = {
@@ -9,7 +9,7 @@ type OkResponse<T> = {
 
 const rawGetStatus = callable<[], DeckSoundpadStatus>("get_status");
 const rawStartBackend = callable<[], DeckSoundpadStatus>("start_backend");
-const rawRefreshLibrary = callable<[], OkResponse<{ sounds: SoundItem[] }>>("refresh_library");
+const rawRefreshLibrary = callable<[], OkResponse<{ sounds: unknown[] }>>("refresh_library");
 const rawEnsureAudio = callable<[], DeckSoundpadStatus>("ensure_audio");
 const rawRepairAudio = callable<[], DeckSoundpadStatus>("repair_audio");
 const rawGetSettings = callable<[], Settings>("get_settings");

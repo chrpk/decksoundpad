@@ -81,14 +81,6 @@ class SimulationTests(unittest.TestCase):
             self.assertTrue(stop_response["ok"])
             self.assertEqual(app.player.active_count(), 0)
 
-    def test_simulated_diagnostics_are_marked(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch.dict(os.environ, {"DECKSOUNDPAD_SIMULATE": "1"}):
-                app = DeckSoundpadApp(make_paths(Path(tmp)))
-
-            diagnostics = app.diagnostics()
-            self.assertTrue(diagnostics["simulation"])
-
 
 if __name__ == "__main__":
     unittest.main()

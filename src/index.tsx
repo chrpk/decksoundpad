@@ -17,7 +17,6 @@ function Content() {
   const {
     status,
     settings,
-    sounds,
     loading,
     error,
     refresh,
@@ -43,7 +42,7 @@ function Content() {
       ) : null}
       <SoundGrid
         libraryDirs={settings?.library_dirs ?? []}
-        soundCount={status?.library.count ?? sounds.length}
+        soundCount={status?.library.count ?? 0}
         loading={loading}
         onRefresh={() => void refresh()}
       />

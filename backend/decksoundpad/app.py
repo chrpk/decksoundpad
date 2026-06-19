@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +14,7 @@ from .config import Settings, load_config, patch_settings, save_config
 from .library import SoundLibrary
 from .models import AudioStatus, LibraryStatus, PlayerStatus, Status
 from .paths import AppPaths, ensure_app_dirs
-from .process import command_exists, decky_runtime_env, run_capture
-from .security import redact_token
+from .process import command_exists
 from .simulation import SimulatedAudioRouter, SimulatedPlaybackManager, simulation_enabled
 
 
@@ -49,14 +46,11 @@ class DeckSoundpadApp:
                 logger=self.logger.getChild("playback"),
             )
         self.logger.info("DeckSoundpad backend initialized version=%s", __version__)
-        self._events: list[queue.Queue[dict[str, Any]]] = []
-        self._events_lock = threading.Lock()
         self._status_cache: dict[str, Any] | None = None
         self._status_cache_lock = threading.Lock()
         self._audio_task_lock = threading.Lock()
         self._audio_task_running = False
         self._audio_task_name: str | None = None
-        self._audio_task_started_at: str | None = None
         self._playback_route_lock = threading.Lock()
         self._playback_route_status: AudioStatus | None = None
         self._playback_route_checked_at = 0.0
@@ -104,22 +98,7 @@ class DeckSoundpadApp:
     def publish_status(self, status: AudioStatus) -> dict[str, Any]:
         payload = self._status_payload(status)
         self._store_status_cache(payload)
-        self.broadcast("status", payload)
         return payload
-
-    def capabilities(self) -> dict[str, Any]:
-        return {
-            "ok": True,
-            "audio": self.router.probe().to_dict(),
-            "player_backends": [
-                {
-                    "name": backend.name,
-                    "available": backend.is_available(),
-                }
-                for backend in self.player.backends
-            ],
-            "allowed_extensions": self.settings.allowed_extensions,
-        }
 
     def list_sounds(self) -> dict[str, Any]:
         sounds = self.library.cached_items()
@@ -129,8 +108,6 @@ class DeckSoundpadApp:
 
     def refresh_library(self) -> dict[str, Any]:
         sounds = self.library.scan()
-        payload = {"count": len(sounds)}
-        self.broadcast("library_updated", payload)
         return {"ok": True, "sounds": [sound.to_dict() for sound in sounds]}
 
     def play_sound(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -186,7 +163,6 @@ class DeckSoundpadApp:
             self._forget_playback_route_status()
             message = str(exc)
             self.logger.warning("playback failed sound_id=%s error=%s", sound.id, message, exc_info=True)
-            self.broadcast("error", {"message": message, "code": "playback_failed"})
             return {"ok": False, "error": message, "sound_id": sound.id}
         backend_name = self._playback_backend_name(playback_id)
         route_payload = self._playback_route_payload(backend_name)
@@ -203,7 +179,6 @@ class DeckSoundpadApp:
             backend_name,
             route_payload,
         )
-        self.broadcast("playback_started", event_payload)
         return {"ok": True, **event_payload}
 
     def _can_play_hot(self, path: Path) -> bool:
@@ -224,7 +199,6 @@ class DeckSoundpadApp:
                 return
             self._audio_task_running = True
             self._audio_task_name = "ensure"
-            self._audio_task_started_at = datetime.now(timezone.utc).isoformat()
 
         def run() -> None:
             try:
@@ -238,7 +212,6 @@ class DeckSoundpadApp:
                 with self._audio_task_lock:
                     self._audio_task_running = False
                     self._audio_task_name = None
-                    self._audio_task_started_at = None
 
         threading.Thread(target=run, name="decksoundpad-playback-route-check", daemon=True).start()
 
@@ -347,7 +320,6 @@ class DeckSoundpadApp:
             self.player.stop_sound(str(sound_id))
         else:
             self.player.stop_all()
-        self.broadcast("playback_finished", {"playback_id": playback_id, "sound_id": sound_id})
         return {"ok": True}
 
     def ensure_audio(self) -> dict[str, Any]:
@@ -366,7 +338,6 @@ class DeckSoundpadApp:
                 )
             self._audio_task_running = True
             self._audio_task_name = name
-            self._audio_task_started_at = datetime.now(timezone.utc).isoformat()
 
         started_status = AudioStatus(
             last_error=f"Audio {name} started",
@@ -388,7 +359,6 @@ class DeckSoundpadApp:
                 with self._audio_task_lock:
                     self._audio_task_running = False
                     self._audio_task_name = None
-                    self._audio_task_started_at = None
 
         threading.Thread(target=run, name=f"decksoundpad-audio-{name}", daemon=True).start()
         return started_status
@@ -405,18 +375,6 @@ class DeckSoundpadApp:
         if not status.pactl_available or not status.pipewire_available:
             return replace(status, state="unavailable")
         return replace(status, state="needs_repair")
-
-    def _audio_task_snapshot(self) -> dict[str, Any]:
-        with self._audio_task_lock:
-            state = "idle"
-            if self._audio_task_running:
-                state = "repairing" if self._audio_task_name == "repair" else "starting"
-            return {
-                "running": self._audio_task_running,
-                "name": self._audio_task_name,
-                "started_at": self._audio_task_started_at,
-                "state": state,
-            }
 
     def settings_payload(self) -> dict[str, Any]:
         return self.settings.to_dict()
@@ -441,87 +399,6 @@ class DeckSoundpadApp:
         self.publish_status(status)
         return self.settings_payload()
 
-    def diagnostics(self) -> dict[str, Any]:
-        def capture(args: list[str]) -> dict[str, Any]:
-            if not command_exists(args[0]):
-                return {"available": False, "stdout": "", "stderr": "command not found"}
-            result = run_capture(args, timeout=5.0, env=decky_runtime_env())
-            return {
-                "available": True,
-                "returncode": result.returncode,
-                "stdout": redact_token(result.stdout),
-                "stderr": redact_token(result.stderr),
-            }
-
-        return {
-            "version": __version__,
-            "simulation": self.simulation,
-            "paths": {
-                "plugin_dir": str(self.paths.plugin_dir),
-                "settings_dir": str(self.paths.settings_dir),
-                "runtime_dir": str(self.paths.runtime_dir),
-                "log_dir": str(self.paths.log_dir),
-                "public_log_dir": str(self.paths.public_log_dir),
-                "user_home": str(self.paths.user_home),
-            },
-            "log_files": {
-                "backend": str(self.paths.backend_log_file),
-                "public_backend": str(self.paths.public_backend_log_file),
-                "public_bridge": str(self.paths.public_bridge_log_file),
-            },
-            "commands": {
-                "pactl": command_exists("pactl"),
-                "paplay": command_exists("paplay"),
-                "pacat": command_exists("pacat"),
-                "pw-play": command_exists("pw-play"),
-                "ffmpeg": command_exists("ffmpeg"),
-                "mpv": command_exists("mpv"),
-            },
-            "audio_task": self._audio_task_snapshot(),
-            "pactl_info": capture(["pactl", "info"]),
-            "default_source": capture(["pactl", "get-default-source"]),
-            "sinks": capture(["pactl", "list", "sinks", "short"]),
-            "sources": capture(["pactl", "list", "sources", "short"]),
-            "sink_inputs": capture(["pactl", "list", "sink-inputs", "short"]),
-            "source_outputs": capture(["pactl", "list", "source-outputs", "short"]),
-            "modules": {
-                **capture(["pactl", "list", "modules", "short"]),
-                "filtered_hint": "filter for decksoundpad_sink, decksoundpad_mic, or DeckSoundpad",
-            },
-            "settings": self._redacted_settings(),
-            "logs": self.tail_logs(200),
-        }
-
-    def tail_logs(self, lines: int) -> dict[str, Any]:
-        max_lines = max(1, min(lines, 1000))
-        log_files = [
-            ("Private backend", self.paths.backend_log_file),
-            ("Public backend", self.paths.public_backend_log_file),
-            ("Public bridge", self.paths.public_bridge_log_file),
-        ]
-        output: list[str] = []
-        seen: set[str] = set()
-        for label, path in log_files:
-            path_key = str(path)
-            if path_key in seen:
-                continue
-            seen.add(path_key)
-            if not path.exists():
-                continue
-            try:
-                content = path.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError as exc:
-                output.extend([f"== {label}: {path} ==", f"read failed: {exc}", ""])
-                continue
-            output.append(f"== {label}: {path} ==")
-            output.extend(redact_token(line) for line in content[-max_lines:])
-            output.append("")
-        return {
-            "ok": True,
-            "public_log_dir": str(self.paths.public_log_dir),
-            "lines": output,
-        }
-
     def best_backend_name(self) -> str | None:
         probes = [Path(f"probe{extension}") for extension in self.settings.allowed_extensions]
         for probe in probes:
@@ -530,48 +407,6 @@ class DeckSoundpadApp:
                 return backend.name
         return None
 
-    def subscribe(self) -> queue.Queue[dict[str, Any]]:
-        subscriber: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=100)
-        with self._events_lock:
-            self._events.append(subscriber)
-        return subscriber
-
-    def unsubscribe(self, subscriber: queue.Queue[dict[str, Any]]) -> None:
-        with self._events_lock:
-            if subscriber in self._events:
-                self._events.remove(subscriber)
-
-    def broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
-        event = {"type": event_type, "payload": payload}
-        with self._events_lock:
-            subscribers = list(self._events)
-        for subscriber in subscribers:
-            try:
-                subscriber.put_nowait(event)
-            except queue.Full:
-                continue
-
-    def dispatch_action(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
-        handlers = {
-            "status": self.status,
-            "status_quick": self.quick_status,
-            "sounds": self.list_sounds,
-            "sounds_refresh": self.refresh_library,
-            "play": lambda: self.play_sound(payload),
-            "stop": lambda: self.stop(payload),
-            "audio_ensure": self.ensure_audio,
-            "audio_repair": self.repair_audio,
-            "logs_tail": lambda: self.tail_logs(int(payload.get("lines", 200))),
-            "settings": self.settings_payload,
-            "settings_update": lambda: self.update_settings(payload),
-        }
-        handler = handlers.get(action)
-        if handler is not None:
-            return handler()
-        raise ValueError(f"unknown backend action: {action}")
-
-    def _redacted_settings(self) -> dict[str, Any]:
-        return self.settings.to_dict()
 
 
 def file_size_for_log(path: Path) -> int | None:

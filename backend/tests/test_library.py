@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from decksoundpad.config import Settings
-from decksoundpad.library import LibrarySecurityError, SoundLibrary
+from decksoundpad.library import SoundLibrary
 from decksoundpad.paths import AppPaths
 
 
@@ -114,16 +114,6 @@ class LibraryTests(unittest.TestCase):
             items = self.library(root, sounds).scan()
             self.assertEqual(len(items), 2)
             self.assertNotEqual(items[0].id, items[1].id)
-
-    def test_library_reject_path_traversal(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            sounds = root / "sounds"
-            outside = root / "outside.wav"
-            outside.write_bytes(b"x")
-            library = self.library(root, sounds)
-            with self.assertRaises(LibrarySecurityError):
-                library.assert_indexed_path(outside)
 
 
 if __name__ == "__main__":
