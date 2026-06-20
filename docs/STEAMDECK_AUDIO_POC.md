@@ -3,6 +3,9 @@
 This check verifies the core audio route after DeckSoundpad has initialized the
 backend and repaired audio routing from the Decky panel.
 
+For release candidates, record the full result in
+[docs/HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
+
 Open Decky, select DeckSoundpad, and run Repair audio routing. Then run the
 verification commands below from Desktop Mode Konsole on the Steam Deck.
 
@@ -10,7 +13,7 @@ Expected result:
 
 - `DeckSoundpad mic` exists as an input source.
 - If a real mic is detected, it is looped into the internal DeckSoundpad mix bus.
-- The bundled `ready-chime.wav` plays into `DeckSoundpad mic`.
+- A sound from `~/Music/DeckSoundpad` plays into `DeckSoundpad mic`.
 - Selecting `DeckSoundpad mic` in Discord, Steam Voice, or another voice app
   shows input meter activity when the sample plays.
 

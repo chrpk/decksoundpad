@@ -218,9 +218,6 @@ class AudioRouter:
         return AudioProbe(
             pipewire_available=pipewire_available,
             pactl_available=pactl_available,
-            pw_play_available=command_exists("pw-play"),
-            ffmpeg_available=command_exists("ffmpeg"),
-            mpv_available=command_exists("mpv"),
             last_error=last_error,
         )
 

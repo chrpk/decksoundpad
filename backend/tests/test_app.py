@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from decksoundpad.app import DeckSoundpadApp
-from decksoundpad.models import AudioProbe, AudioStatus
+from decksoundpad.models import AudioStatus
 from decksoundpad.paths import AppPaths
 
 
@@ -26,15 +26,6 @@ class FakeRouter:
             selected_real_mic="alsa_input.test",
             default_source="decksoundpad_mic",
             is_default_source=True,
-        )
-
-    def probe(self) -> AudioProbe:
-        return AudioProbe(
-            pipewire_available=True,
-            pactl_available=True,
-            pw_play_available=True,
-            ffmpeg_available=False,
-            mpv_available=False,
         )
 
     def ensure(self) -> AudioStatus:
@@ -113,10 +104,6 @@ class RecordingPlayer:
     def __init__(self) -> None:
         self.backends = [FakeBackend()]
         self.play_calls: list[tuple[str, Path, float | None]] = []
-        self.preload_calls: list[list[Path]] = []
-
-    def active_count(self) -> int:
-        return 0
 
     def play(
         self,
@@ -126,15 +113,6 @@ class RecordingPlayer:
     ) -> str:
         self.play_calls.append((sound_id, path, volume))
         return "pb_test"
-
-    def preload(self, paths: list[Path]) -> None:
-        self.preload_calls.append(paths)
-
-    def stop_playback(self, _playback_id: str) -> None:
-        return None
-
-    def stop_sound(self, _sound_id: str) -> None:
-        return None
 
     def stop_all(self) -> None:
         return None
@@ -191,7 +169,7 @@ class AppTests(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"], "sound not found")
 
-    def test_refresh_library_does_not_preload_or_touch_audio_playback(self) -> None:
+    def test_refresh_library_does_not_touch_audio_playback(self) -> None:
         player = RecordingPlayer()
         self.app.player = player  # type: ignore[assignment]
         sounds_dir = Path(self.tmp.name) / "sounds"
@@ -201,7 +179,7 @@ class AppTests(unittest.TestCase):
         response = self.app.refresh_library()
 
         self.assertTrue(response["ok"])
-        self.assertEqual(player.preload_calls, [])
+        self.assertEqual(player.play_calls, [])
 
     def test_play_returns_clean_error_without_backend(self) -> None:
         self.app.player.backends = []

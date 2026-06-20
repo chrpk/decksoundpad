@@ -14,7 +14,6 @@ from .config import Settings, load_config, patch_settings, save_config
 from .library import SoundLibrary
 from .models import AudioStatus, LibraryStatus, PlayerStatus, Status
 from .paths import AppPaths, ensure_app_dirs
-from .process import command_exists
 from .simulation import SimulatedAudioRouter, SimulatedPlaybackManager, simulation_enabled
 
 
@@ -71,14 +70,9 @@ class DeckSoundpadApp:
     def _status_payload(self, audio_status: AudioStatus) -> dict[str, Any]:
         player_status = PlayerStatus(
             backend=self.best_backend_name(),
-            pw_play_available=command_exists("pw-play"),
-            ffmpeg_available=command_exists("ffmpeg"),
-            mpv_available=command_exists("mpv"),
-            active_playbacks=self.player.active_count(),
         )
         library_status = LibraryStatus(
             count=len(self.library.cached_items()),
-            last_scan_at=self.library.last_scan_at,
         )
         status_payload = Status(
             backend_running=True,
@@ -131,7 +125,7 @@ class DeckSoundpadApp:
             return {"ok": False, "error": "sound not found"}
         sound_path = Path(sound.path)
         self.logger.info(
-            "playback sound resolved sound_id=%s name=%s category=%s relative_path=%s path=%s exists=%s size_bytes=%s extension=%s",
+            "playback sound resolved sound_id=%s display_name=%s category=%s relative_path=%s path=%s exists=%s file_size=%s extension=%s",
             sound.id,
             sound.display_name,
             sound.category,
@@ -311,24 +305,10 @@ class DeckSoundpadApp:
             for sound in sounds[:limit]
         ]
 
-    def stop(self, payload: dict[str, Any]) -> dict[str, Any]:
-        playback_id = payload.get("playback_id")
-        sound_id = payload.get("sound_id")
-        if playback_id:
-            self.player.stop_playback(str(playback_id))
-        elif sound_id:
-            self.player.stop_sound(str(sound_id))
-        else:
-            self.player.stop_all()
-        return {"ok": True}
-
-    def ensure_audio(self) -> dict[str, Any]:
-        return self._start_audio_task("ensure", self.router.ensure).to_dict()
-
     def repair_audio(self) -> dict[str, Any]:
-        return self._start_audio_task("repair", self.router.repair).to_dict()
+        return self._start_repair_task().to_dict()
 
-    def _start_audio_task(self, name: str, operation: Any) -> AudioStatus:
+    def _start_repair_task(self) -> AudioStatus:
         with self._audio_task_lock:
             if self._audio_task_running:
                 state = "repairing" if self._audio_task_name == "repair" else "starting"
@@ -337,22 +317,22 @@ class DeckSoundpadApp:
                     state=state,
                 )
             self._audio_task_running = True
-            self._audio_task_name = name
+            self._audio_task_name = "repair"
 
         started_status = AudioStatus(
-            last_error=f"Audio {name} started",
-            state="repairing" if name == "repair" else "starting",
+            last_error="Audio repair started",
+            state="repairing",
         )
         self.publish_status(started_status)
 
         def run() -> None:
             try:
-                self.logger.info("audio %s started", name)
-                status = self._final_audio_status(operation())
-                self.logger.info("audio %s finished status=%s", name, status.to_dict())
+                self.logger.info("audio repair started")
+                status = self._final_audio_status(self.router.repair())
+                self.logger.info("audio repair finished status=%s", status.to_dict())
             except Exception as exc:
-                self.logger.exception("audio %s failed", name)
-                status = AudioStatus(last_error=f"Audio {name} failed: {exc}", state="error")
+                self.logger.exception("audio repair failed")
+                status = AudioStatus(last_error=f"Audio repair failed: {exc}", state="error")
             finally:
                 self._remember_playback_route_status(status)
                 self.publish_status(status)
@@ -360,7 +340,7 @@ class DeckSoundpadApp:
                     self._audio_task_running = False
                     self._audio_task_name = None
 
-        threading.Thread(target=run, name=f"decksoundpad-audio-{name}", daemon=True).start()
+        threading.Thread(target=run, name="decksoundpad-audio-repair", daemon=True).start()
         return started_status
 
     def _final_audio_status(self, status: AudioStatus) -> AudioStatus:

@@ -1,12 +1,26 @@
 declare const __BUILD_DATETIME__: string | undefined;
+declare const __PACKAGE_VERSION__: string | undefined;
 
 export const BUILD_DATETIME = formatBuildDateTime(rawBuildDateTime());
+export const PACKAGE_VERSION = rawPackageVersion();
+export const BUILD_METADATA = formatBuildMetadata(PACKAGE_VERSION, BUILD_DATETIME);
 
 function rawBuildDateTime(): string | undefined {
   return typeof __BUILD_DATETIME__ === "string" ? __BUILD_DATETIME__ : undefined;
 }
 
-export function formatBuildDateTime(value: string | undefined): string {
+function rawPackageVersion(): string {
+  return typeof __PACKAGE_VERSION__ === "string" ? __PACKAGE_VERSION__ : "development";
+}
+
+function formatBuildMetadata(version: string, dateTime: string): string {
+  if (version === "development") {
+    return dateTime;
+  }
+  return `v${version} | Build ${dateTime}`;
+}
+
+function formatBuildDateTime(value: string | undefined): string {
   if (!value) {
     return "development build";
   }

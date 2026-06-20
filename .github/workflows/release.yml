@@ -1,0 +1,68 @@
+name: Tagged Release Artifact
+
+on:
+  push:
+    tags:
+      - v*
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tagged-artifact:
+    name: Validate Tagged Release Artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Read package version
+        run: |
+          VERSION="$(node -p 'require("./package.json").version')"
+          echo "DECKSOUNDPAD_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Validate tagged release package
+        env:
+          DECKSOUNDPAD_REQUIRE_CLEAN_TREE: "1"
+          DECKSOUNDPAD_REQUIRE_TAG: "1"
+        run: corepack pnpm run validate:release
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: decksoundpad-tagged-release-${{ github.ref_name }}
+          path: |
+            out/DeckSoundpad-v${{ env.DECKSOUNDPAD_VERSION }}-full.zip
+            out/DeckSoundpad-v${{ env.DECKSOUNDPAD_VERSION }}-full.zip.sha256
+          if-no-files-found: error
+          retention-days: 30

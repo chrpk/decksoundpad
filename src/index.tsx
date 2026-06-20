@@ -1,8 +1,7 @@
 import { PanelSection, PanelSectionRow, staticClasses } from "@decky/ui";
 import { definePlugin } from "@decky/api";
-import { useCallback, useState } from "react";
 import { FaVolumeUp } from "react-icons/fa";
-import { BUILD_DATETIME } from "./buildInfo";
+import { BUILD_METADATA } from "./buildInfo";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SoundGrid } from "./components/SoundGrid";
@@ -10,10 +9,6 @@ import { RepairAudioRoutingPanel, StatusCard } from "./components/StatusCard";
 import { useDeckSoundpadData } from "./state/store";
 
 function Content() {
-  const [, setActivity] = useState<string[]>(() => [formatActivity("Panel opened")]);
-  const addActivity = useCallback((message: string) => {
-    setActivity((entries) => [formatActivity(message), ...entries].slice(0, 30));
-  }, []);
   const {
     status,
     settings,
@@ -22,17 +17,16 @@ function Content() {
     refresh,
     setStatus,
     setError,
-  } = useDeckSoundpadData(addActivity);
+  } = useDeckSoundpadData();
 
   return (
     <div style={contentStyle}>
-      <div style={topBuildMetaStyle}>Build {BUILD_DATETIME}</div>
+      <div style={topBuildMetaStyle}>{BUILD_METADATA}</div>
       <StatusCard status={status} loading={loading} />
       <SettingsPanel
         status={status}
         onStatus={setStatus}
         onError={setError}
-        onActivity={addActivity}
       />
       <ControlsPanel />
       {error ? (
@@ -46,13 +40,9 @@ function Content() {
         loading={loading}
         onRefresh={() => void refresh()}
       />
-      <RepairAudioRoutingPanel onStatus={setStatus} onError={setError} onActivity={addActivity} />
+      <RepairAudioRoutingPanel onStatus={setStatus} onError={setError} />
     </div>
   );
-}
-
-function formatActivity(message: string): string {
-  return `[${new Date().toLocaleTimeString()}] ${message}`;
 }
 
 const contentStyle = {

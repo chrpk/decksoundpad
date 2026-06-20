@@ -9,7 +9,7 @@ from typing import Mapping
 from .audio_formats import audio_extension, can_play_supported_extension
 from .audio_router import MIC_NAME, SINK_NAME
 from .config import Settings
-from .models import AudioProbe, AudioSource, AudioStatus
+from .models import AudioStatus
 from .paths import AppPaths
 
 
@@ -19,42 +19,9 @@ def simulation_enabled(env: Mapping[str, str] | None = None) -> bool:
 
 
 class SimulatedAudioRouter:
-    def __init__(self, _paths: AppPaths, settings: Settings):
-        self.settings = settings
+    def __init__(self, _paths: AppPaths, _settings: Settings):
         self._default_source = "simulated_real_mic"
         self._ensured = True
-
-    def probe(self) -> AudioProbe:
-        return AudioProbe(
-            pipewire_available=True,
-            pactl_available=True,
-            pw_play_available=True,
-            ffmpeg_available=True,
-            mpv_available=False,
-        )
-
-    def list_sources(self) -> list[AudioSource]:
-        return [
-            AudioSource(
-                index=1,
-                name="simulated_real_mic",
-                description="Steam Deck Microphone",
-                driver="simulation",
-            ),
-            AudioSource(index=2, name=f"{SINK_NAME}.monitor", driver="simulation"),
-            AudioSource(
-                index=3,
-                name=MIC_NAME,
-                description="DeckSoundpad mic",
-                driver="simulation",
-            ),
-        ]
-
-    def detect_real_source(self) -> str | None:
-        return "simulated_real_mic"
-
-    def get_default_source(self) -> str | None:
-        return self._default_source
 
     def ensure(self) -> AudioStatus:
         self._ensured = True
@@ -78,9 +45,6 @@ class SimulatedAudioRouter:
     def repair(self) -> AudioStatus:
         self._ensured = True
         return self.healthcheck()
-
-    def teardown(self) -> None:
-        self._ensured = False
 
 
 class SimulatedBackend:
@@ -114,10 +78,6 @@ class SimulatedPlaybackManager:
         self.backends = [SimulatedBackend()]
         self.playbacks: dict[str, SimulatedPlayback] = {}
 
-    def active_count(self) -> int:
-        self._collect_expired()
-        return len(self.playbacks)
-
     def play(
         self,
         sound_id: str,
@@ -134,7 +94,7 @@ class SimulatedPlaybackManager:
         if self.settings.overlap_mode == "single":
             self.stop_all()
         elif self.settings.overlap_mode == "per_sound":
-            self.stop_sound(sound_id)
+            self._stop_sound(sound_id)
         elif len(self.playbacks) >= self.settings.max_concurrent_sounds:
             raise RuntimeError("maximum concurrent sounds reached")
 
@@ -151,13 +111,10 @@ class SimulatedPlaybackManager:
     def stop_all(self) -> None:
         self.playbacks.clear()
 
-    def stop_sound(self, sound_id: str) -> None:
+    def _stop_sound(self, sound_id: str) -> None:
         for playback_id, playback in list(self.playbacks.items()):
             if playback.sound_id == sound_id:
                 self.playbacks.pop(playback_id, None)
-
-    def stop_playback(self, playback_id: str) -> None:
-        self.playbacks.pop(playback_id, None)
 
     def _collect_expired(self) -> None:
         now = time.time()

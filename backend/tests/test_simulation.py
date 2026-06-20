@@ -63,7 +63,7 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(status["audio"]["default_source"], "simulated_real_mic")
             self.assertFalse(status["audio"]["is_default_source"])
 
-    def test_simulated_play_and_stop(self) -> None:
+    def test_simulated_play_and_player_stop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with patch.dict(os.environ, {"DECKSOUNDPAD_SIMULATE": "1"}):
                 app = DeckSoundpadApp(make_paths(Path(tmp)))
@@ -75,11 +75,10 @@ class SimulationTests(unittest.TestCase):
             play_response = app.play_sound({"sound_id": sound_id, "volume": 0.5})
             self.assertTrue(play_response["ok"])
             self.assertTrue(str(play_response["playback_id"]).startswith("sim_pb_"))
-            self.assertEqual(app.player.active_count(), 1)
+            self.assertIn(play_response["playback_id"], app.player.playbacks)
 
-            stop_response = app.stop({"playback_id": None, "sound_id": None})
-            self.assertTrue(stop_response["ok"])
-            self.assertEqual(app.player.active_count(), 0)
+            app.player.stop_all()
+            self.assertEqual(app.player.playbacks, {})
 
 
 if __name__ == "__main__":

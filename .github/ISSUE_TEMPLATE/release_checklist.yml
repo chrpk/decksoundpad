@@ -1,0 +1,73 @@
+name: Release Checklist
+description: Track a DeckSoundpad release candidate.
+title: "[Release]: v"
+labels:
+  - packaging
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.1.28"
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      placeholder: "Git SHA"
+    validations:
+      required: true
+  - type: checkboxes
+    id: local-validation
+    attributes:
+      label: Local validation
+      options:
+        - label: `corepack pnpm install --frozen-lockfile`
+        - label: `corepack pnpm run check`
+        - label: `corepack pnpm run validate:repo`
+        - label: `corepack pnpm run validate:source-archive`
+        - label: `corepack pnpm run validate:licenses`
+        - label: `corepack pnpm run licenses:generate` was run if dependency versions changed
+        - label: `corepack pnpm run scan:secrets`
+        - label: `corepack pnpm run package`
+        - label: `corepack pnpm run validate:release`
+        - label: `corepack pnpm run validate:publication` passed after external evidence was supplied
+        - label: Strict tagged release validation completed with `DECKSOUNDPAD_REQUIRE_CLEAN_TREE=1 DECKSOUNDPAD_REQUIRE_TAG=1`
+        - label: `CodeQL` workflow passed or reviewed for this release candidate
+        - label: `Dependency Review` workflow passed for dependency changes
+        - label: `Tagged Release Artifact` workflow passed for this tag
+        - label: ZIP contents inspected with `unzip -l`
+        - label: SHA-256 checksum generated
+        - label: Full-history secret scan completed
+        - label: Release notes drafted from `docs/RELEASE_NOTES_TEMPLATE.md`
+  - type: checkboxes
+    id: steam-deck-validation
+    attributes:
+      label: Steam Deck validation
+      options:
+        - label: `docs/STEAMDECK_AUDIO_POC.md` completed
+        - label: `docs/EXTERNAL_OVERLAY_POC.md` completed
+        - label: Root-flag diagnostic candidate tested
+        - label: Minimum supported SteamOS version recorded
+        - label: Minimum supported Decky Loader version recorded
+        - label: Screenshots or demo clip captured
+        - label: `docs/HARDWARE_VALIDATION.md` copied into this issue or linked
+  - type: input
+    id: steamos-version
+    attributes:
+      label: SteamOS version
+  - type: input
+    id: decky-version
+    attributes:
+      label: Decky Loader version
+  - type: textarea
+    id: root-flag-result
+    attributes:
+      label: Root flag validation result
+      description: Summarize what fails without the root flag, or state why it can be removed.
+  - type: textarea
+    id: artifact
+    attributes:
+      label: Release artifact
+      description: ZIP filename, checksum, tagged workflow URL, and draft release link.

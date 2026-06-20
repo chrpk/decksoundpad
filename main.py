@@ -25,18 +25,8 @@ except ImportError:  # Local development fallback.
     import logging
 
     class _DeckyFallback:
-        DECKY_USER_HOME = str(Path.home())
         DECKY_PLUGIN_DIR = str(Path(__file__).resolve().parent)
-        DECKY_PLUGIN_SETTINGS_DIR = str(Path.home() / ".config" / "decksoundpad")
-        DECKY_PLUGIN_RUNTIME_DIR = str(Path.home() / ".local" / "state" / "decksoundpad")
-        DECKY_PLUGIN_LOG_DIR = str(
-            Path.home() / ".local" / "state" / "decksoundpad" / "logs"
-        )
         logger = logging.getLogger("decksoundpad.decky")
-
-        @staticmethod
-        async def emit(*_args: Any) -> None:
-            return None
 
     decky = _DeckyFallback()  # type: ignore[assignment]
 
@@ -50,7 +40,7 @@ from decksoundpad.app import DeckSoundpadApp, start_healthcheck_loop
 from decksoundpad.config import Settings, load_config
 from decksoundpad.logging_setup import setup_logging
 from decksoundpad.models import AudioStatus, LibraryStatus, PlayerStatus, Status
-from decksoundpad.paths import AppPaths, ensure_app_dirs, resolve_paths
+from decksoundpad.paths import ensure_app_dirs, resolve_paths
 from decksoundpad.process import decky_runtime_env
 
 
@@ -213,14 +203,6 @@ class Plugin:
             lambda app: app.refresh_library(),
             fallback={"ok": False, "error": "backend unavailable", "sounds": []},
         )
-
-    async def ensure_audio(self) -> dict[str, Any]:
-        await self._call_backend(
-            "audio_ensure",
-            lambda app: app.ensure_audio(),
-            fallback={},
-        )
-        return await self.get_status()
 
     async def repair_audio(self) -> dict[str, Any]:
         await self._call_backend(
@@ -570,7 +552,7 @@ class Plugin:
             action = clean_log_text(str(command.get("action", "")), 40)
             if action:
                 self._append_bridge_log(f"external overlay touch action input={action}")
-                self._external_overlay_input_sync(action)
+                self._handle_external_overlay_input(action)
             return
 
         if command_type != "select":
@@ -647,21 +629,6 @@ class Plugin:
         except OSError:
             return ""
         return clean_log_text(" | ".join(content[-lines:]), 500)
-
-    def _external_overlay_failure_response(self, exc: Exception) -> dict[str, Any]:
-        message = clean_log_text(str(exc) or repr(exc) or type(exc).__name__, 500)
-        if not message:
-            message = type(exc).__name__
-        tail = self._external_overlay_log_tail()
-        error = message
-        if tail and tail not in error:
-            error = f"{error}; overlay log: {tail}"
-        return {
-            "ok": False,
-            "visible": self._external_overlay_visible,
-            "error": error,
-            "log_tail": tail,
-        }
 
     def _external_overlay_process_exit_error(self) -> str | None:
         process = self._external_overlay_process
@@ -852,7 +819,7 @@ class Plugin:
             detail = f"{detail}; log: {tail}"
         raise RuntimeError(detail)
 
-    def _toggle_external_overlay_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _toggle_external_overlay(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._external_overlay_lock:
             source = clean_log_text(str(payload.get("source", "unknown")))
             now = time.monotonic()
@@ -903,7 +870,7 @@ class Plugin:
                 "sounds_count": len(self._external_overlay_sounds),
             }
 
-    def _external_overlay_input_sync(self, action: str) -> dict[str, Any]:
+    def _handle_external_overlay_input(self, action: str) -> dict[str, Any]:
         safe_action = clean_log_text(str(action), 40)
         with self._external_overlay_lock:
             if not self._external_overlay_visible:
@@ -1032,7 +999,7 @@ class Plugin:
         else:
             self._external_overlay_message = clean_log_text(str(response.get("error") or "Playback failed"), 80)
 
-    def _play_previous_external_overlay_sound_sync(self) -> dict[str, Any]:
+    def _play_previous_external_overlay_sound(self) -> dict[str, Any]:
         with self._external_overlay_lock:
             was_visible = self._external_overlay_visible
             self._reload_external_overlay_sounds()
@@ -1206,7 +1173,7 @@ class Plugin:
                 f"device={device_path} action={action} mask=0x{mask:08x}"
             )
             try:
-                response = self._external_overlay_input_sync(action)
+                response = self._handle_external_overlay_input(action)
                 self._append_bridge_log(
                     "Steam Deck HID overlay input handled "
                     f"action={action} visible={bool(response.get('visible'))}"
@@ -1236,7 +1203,7 @@ class Plugin:
             f"right=({report.get('right_stick_x', 0)},{report.get('right_stick_y', 0)})"
         )
         try:
-            response = self._external_overlay_input_sync(direction)
+            response = self._handle_external_overlay_input(direction)
             self._append_bridge_log(
                 "Steam Deck HID overlay stick input handled "
                 f"direction={direction} visible={bool(response.get('visible'))}"
@@ -1345,7 +1312,7 @@ class Plugin:
             f"L5 shortcut detected source={source} {self._backend_steam_overlay_log_fragment()}"
         )
         try:
-            response = self._toggle_external_overlay_sync({"source": source})
+            response = self._toggle_external_overlay({"source": source})
             self._append_bridge_log(
                 "L5 direct hotkey handled by backend "
                 f"source={source} "
@@ -1369,7 +1336,7 @@ class Plugin:
             f"R5 direct previous sound detected source={source} device={device_path}"
         )
         try:
-            response = self._play_previous_external_overlay_sound_sync()
+            response = self._play_previous_external_overlay_sound()
             self._append_bridge_log(
                 "R5 direct previous sound handled "
                 f"source={source} visible={bool(response.get('visible'))} "
@@ -1389,12 +1356,8 @@ class Plugin:
             audio=AudioStatus(last_error=last_error, state="offline"),
             player=PlayerStatus(
                 backend=None,
-                pw_play_available=False,
-                ffmpeg_available=False,
-                mpv_available=False,
-                active_playbacks=0,
             ),
-            library=LibraryStatus(count=0, last_scan_at=None),
+            library=LibraryStatus(count=0),
         ).to_dict()
         status["version"] = __version__
         status["mic_passthrough_enabled"] = mic_passthrough_enabled
@@ -1465,7 +1428,6 @@ class Plugin:
 def bridge_action_is_interesting(action: str) -> bool:
     return action in {
         "sounds_refresh",
-        "audio_ensure",
         "audio_repair",
         "settings_update",
     }
@@ -1522,7 +1484,6 @@ def response_summary_for_log(response: dict[str, Any]) -> dict[str, Any]:
     if isinstance(player, dict):
         summary["player"] = {
             "backend": player.get("backend"),
-            "active_playbacks": player.get("active_playbacks"),
         }
     if not summary:
         summary["keys"] = sorted(response)

@@ -23,11 +23,6 @@ except ValueError:
 
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
-try:
-    from gi.repository import GdkX11  # noqa: F401,E402
-except ImportError:  # pragma: no cover - depends on SteamOS GTK build.
-    GdkX11 = None  # type: ignore[assignment]
-
 
 LOGGER = logging.getLogger("decksoundpad.external_overlay")
 GAMESCOPE_OVERLAY_ATOMS = ("GAMESCOPE_EXTERNAL_OVERLAY", "STEAM_EXTERNAL_OVERLAY")
@@ -242,7 +237,8 @@ class OverlayWindow(Gtk.Window):
     def on_touch_event(self, _widget: Gtk.Widget, event: Any) -> bool:
         if not self.visible_overlay:
             return False
-        if getattr(event, "type", None) != Gdk.EventType.TOUCH_BEGIN:
+        event_type = getattr(event, "type", None)
+        if event_type not in (Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.TOUCH_UPDATE):
             return True
         return self.handle_pointer_press(float(event.x), float(event.y))
 

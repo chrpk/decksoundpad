@@ -1,0 +1,37 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.wav binary
+*.flac binary
+*.ogg binary
+*.mp3 binary
+
+/out export-ignore
+/dist export-ignore
+/backend/out export-ignore
+/node_modules export-ignore
+/.pnpm-store export-ignore
+/.tmp-run export-ignore
+/.playwright-mcp export-ignore
+/.pytest_cache export-ignore
+/.mypy_cache export-ignore
+/.ruff_cache export-ignore
+/.coverage export-ignore
+/htmlcov export-ignore
+/.venv export-ignore
+/venv export-ignore
+/cli export-ignore
+/decky_plugin.py export-ignore
+__pycache__ export-ignore
+*.py[cod] export-ignore
+*.pid export-ignore
+.env export-ignore
+.DS_Store export-ignore
+*.log export-ignore
+*.log.* export-ignore

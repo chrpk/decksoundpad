@@ -7,10 +7,9 @@ interface SettingsPanelProps {
   status: DeckSoundpadStatus | null;
   onStatus: (status: DeckSoundpadStatus) => void;
   onError: (message: string) => void;
-  onActivity: (message: string) => void;
 }
 
-export function SettingsPanel({ status, onStatus, onError, onActivity }: SettingsPanelProps) {
+export function SettingsPanel({ status, onStatus, onError }: SettingsPanelProps) {
   const [isUpdating, setUpdating] = useState(false);
   const passthroughEnabled = Boolean(status?.mic_passthrough_enabled);
   const disabled = !isBackendRunning(status) || isUpdating;
@@ -22,19 +21,14 @@ export function SettingsPanel({ status, onStatus, onError, onActivity }: Setting
     }
     setUpdating(true);
     try {
-      onActivity(
-        `Updating real microphone passthrough: ${nextEnabled ? "enabling" : "disabling"}`,
-      );
       await updateSettings({ mic_passthrough_enabled: nextEnabled });
       onStatus(await getStatus());
-      onActivity(`Real microphone passthrough ${nextEnabled ? "enabled" : "disabled"}`);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : "Failed to update mic input toggle");
-      onActivity("Failed to update real microphone passthrough");
     } finally {
       setUpdating(false);
     }
-  }, [onActivity, onError, onStatus, status]);
+  }, [onError, onStatus, status]);
 
   return (
     <PanelSection title="Settings">

@@ -1,16 +1,10 @@
 import { callable } from "@decky/api";
-import { DeckSoundpadStatus, Settings } from "../types";
+import { DeckSoundpadStatus, LibraryRefreshResponse, Settings } from "../types";
 import { delay } from "../utils/timing";
-
-type OkResponse<T> = {
-  ok: boolean;
-  error?: string;
-} & T;
 
 const rawGetStatus = callable<[], DeckSoundpadStatus>("get_status");
 const rawStartBackend = callable<[], DeckSoundpadStatus>("start_backend");
-const rawRefreshLibrary = callable<[], OkResponse<{ sounds: unknown[] }>>("refresh_library");
-const rawEnsureAudio = callable<[], DeckSoundpadStatus>("ensure_audio");
+const rawRefreshLibrary = callable<[], LibraryRefreshResponse>("refresh_library");
 const rawRepairAudio = callable<[], DeckSoundpadStatus>("repair_audio");
 const rawGetSettings = callable<[], Settings>("get_settings");
 const rawUpdateSettings = callable<[patch: Partial<Settings>], Settings>("update_settings");
@@ -30,8 +24,7 @@ function withTimeout<T>(label: string, promise: Promise<T>, timeoutMs = 1800): P
 export const getStatus = () => withTimeout("get_status", rawGetStatus(), 900);
 export const startBackend = () => withTimeout("start_backend", rawStartBackend(), 1200);
 export const refreshLibrary = () => withTimeout("refresh_library", rawRefreshLibrary(), 2200);
-export const ensureAudio = () => withTimeout("ensure_audio", rawEnsureAudio(), 1500);
-export const repairAudio = () => withTimeout("repair_audio", rawRepairAudio(), 1500);
+const repairAudio = () => withTimeout("repair_audio", rawRepairAudio(), 1500);
 export async function repairAudioAndWait(
   onProgress?: (status: DeckSoundpadStatus) => void,
   timeoutMs = 15000,
@@ -62,6 +55,6 @@ function audioTaskInProgress(status: DeckSoundpadStatus): boolean {
   return (
     message === "Audio status pending" ||
     message === "Audio initialization already running" ||
-    /^Audio (ensure|repair) started$/.test(message)
+    message === "Audio repair started"
   );
 }

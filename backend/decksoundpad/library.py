@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, replace
-from datetime import datetime, timezone
+from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable
 
@@ -14,10 +13,6 @@ from .paths import AppPaths, ensure_app_dirs, expand_user_path
 
 class LibrarySecurityError(ValueError):
     """Raised when a requested library path escapes configured roots."""
-
-
-def utc_from_timestamp(timestamp: float) -> str:
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
 
 def is_relative_to(path: Path, root: Path) -> bool:
@@ -33,7 +28,6 @@ class SoundLibrary:
         self.paths = paths
         self.settings = settings
         self._items: list[SoundItem] = []
-        self.last_scan_at: str | None = None
 
     def roots(self) -> list[Path]:
         return [
@@ -54,7 +48,6 @@ class SoundLibrary:
             items.extend(self._scan_root(root))
         items.sort(key=lambda item: (item.category.lower(), item.display_name.lower()))
         self._items = items
-        self.last_scan_at = datetime.now(timezone.utc).isoformat()
         self._write_cache()
         return items
 
@@ -65,8 +58,13 @@ class SoundLibrary:
             return []
         with self.paths.library_cache_file.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.last_scan_at = payload.get("last_scan_at")
-        self._items = [SoundItem(**item) for item in payload.get("items", [])]
+        self._items = [
+            item
+            for item in (
+                sound_item_from_cache(entry) for entry in payload.get("items", [])
+            )
+            if item is not None
+        ]
         return self._items
 
     def get_by_id(self, sound_id: str) -> SoundItem | None:
@@ -76,20 +74,7 @@ class SoundLibrary:
         return None
 
     def _scan_bundled_sounds(self) -> list[SoundItem]:
-        items = list(self._scan_root(self.paths.plugin_dir / "defaults" / "sounds"))
-        items.extend(self._scan_packaged_assets())
-        return items
-
-    def _scan_packaged_assets(self) -> list[SoundItem]:
-        root = self.paths.plugin_dir / "assets"
-        return [
-            replace(
-                item,
-                category="assets",
-                relative_path=f"assets/{Path(item.relative_path).as_posix()}",
-            )
-            for item in self._scan_root(root)
-        ]
+        return list(self._scan_root(self.paths.plugin_dir / "defaults" / "sounds"))
 
     def _scan_root(self, root: Path) -> Iterable[SoundItem]:
         if not root.exists():
@@ -127,21 +112,44 @@ class SoundLibrary:
         sound_id = f"sha1:{hashlib.sha1(hash_input).hexdigest()}"
         return SoundItem(
             id=sound_id,
-            name=path.stem,
             display_name=display_name,
             path=str(resolved),
             relative_path=relative.as_posix(),
             category=category,
             extension=path.suffix.lower(),
-            size_bytes=stat.st_size,
-            modified_at=utc_from_timestamp(stat.st_mtime),
         )
 
     def _write_cache(self) -> None:
         payload = {
-            "last_scan_at": self.last_scan_at,
             "items": [asdict(item) for item in self._items],
         }
         with self.paths.library_cache_file.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
+
+
+def sound_item_from_cache(value: object) -> SoundItem | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        sound_id = str(value["id"])
+        path = str(value["path"])
+        relative_path = str(value["relative_path"])
+        extension = str(value["extension"])
+    except KeyError:
+        return None
+
+    display_name = str(
+        value.get("display_name")
+        or value.get("name")
+        or Path(relative_path).stem
+        or Path(path).stem
+    )
+    return SoundItem(
+        id=sound_id,
+        display_name=display_name,
+        path=path,
+        relative_path=relative_path,
+        category=str(value.get("category") or "uncategorized"),
+        extension=extension,
+    )

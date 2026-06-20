@@ -13,7 +13,6 @@ interface StatusCardProps {
 interface RepairAudioRoutingPanelProps {
   onStatus: (status: DeckSoundpadStatus) => void;
   onError: (message: string) => void;
-  onActivity: (message: string) => void;
 }
 
 function statusLabel(status: DeckSoundpadStatus | null, loading: boolean): string {
@@ -90,7 +89,7 @@ export function StatusCard({ status, loading }: StatusCardProps) {
   );
 }
 
-export function RepairAudioRoutingPanel({ onStatus, onError, onActivity }: RepairAudioRoutingPanelProps) {
+export function RepairAudioRoutingPanel({ onStatus, onError }: RepairAudioRoutingPanelProps) {
   const [busy, setBusy] = useState(false);
 
   return (
@@ -101,22 +100,14 @@ export function RepairAudioRoutingPanel({ onStatus, onError, onActivity }: Repai
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            onActivity("Starting backend for audio initialization");
             try {
               await startBackend();
               await delay(700);
-              onActivity("Audio initialization requested");
               const nextStatus = await repairAudioAndWait(onStatus);
               onStatus(nextStatus);
-              onActivity(
-                nextStatus.audio.last_error
-                  ? `Audio repair finished: ${nextStatus.audio.last_error}`
-                  : "Audio repair finished",
-              );
             } catch (caught) {
               const message = caught instanceof Error ? caught.message : "Repair failed";
               onError(message);
-              onActivity(`Repair audio failed: ${message}`);
             } finally {
               setBusy(false);
             }

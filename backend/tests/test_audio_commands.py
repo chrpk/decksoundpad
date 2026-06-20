@@ -636,7 +636,7 @@ class AudioCommandTests(unittest.TestCase):
 
             self.assertTrue(playback_id.startswith("pb_"))
             self.assertEqual(terminated_groups, [[34001]])
-            self.assertEqual(manager.active_count(), 0)
+            self.assertNotIn(playback_id, manager.playbacks)
 
     def test_playback_pipeline_uses_decky_runtime_env_for_every_process(self) -> None:
         captured_envs: list[dict[str, str]] = []
@@ -685,7 +685,7 @@ class AudioCommandTests(unittest.TestCase):
         playback_id = manager.play("sound-1", Path("sound.wav"), volume=0.75)
         try:
             self.assertTrue(playback_id.startswith("pb_"))
-            self.assertEqual(manager.active_count(), 1)
+            self.assertIn(playback_id, manager.playbacks)
         finally:
             manager.stop_all()
 

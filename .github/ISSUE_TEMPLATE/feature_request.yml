@@ -1,0 +1,58 @@
+name: Feature Request
+description: Suggest an improvement for DeckSoundpad.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use public feature requests for vulnerability reports, exploit details, private paths, usernames, or unredacted logs. Use SECURITY.md for vulnerability reports.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or limitation should this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Decky panel
+        - Audio routing
+        - Real mic passthrough
+        - External overlay
+        - Sound library
+        - Packaging/install
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: public-safety
+    attributes:
+      label: Public report safety
+      options:
+        - label: I did not include vulnerability details, exploit steps, private paths, usernames, or unredacted logs in this public request.
+          required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This should not require SteamOS root filesystem changes.
+        - label: This should not add a LAN HTTP API.
+        - label: This should work from the Decky panel.

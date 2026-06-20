@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -71,18 +72,6 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(items[0].category, "assets")
             self.assertEqual(items[0].relative_path, "assets/payment_succes.wav")
 
-    def test_library_lists_packaged_assets_category(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            assets = root / "assets"
-            assets.mkdir(parents=True)
-            (assets / "payment_succes.mp3").write_bytes(b"mp3")
-            library = self.library(root, root / "custom")
-            items = library.scan()
-            self.assertEqual(len(items), 1)
-            self.assertEqual(items[0].category, "assets")
-            self.assertEqual(items[0].relative_path, "assets/payment_succes.mp3")
-
     def test_library_nested_categories(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -101,7 +90,7 @@ class LibraryTests(unittest.TestCase):
             sounds.mkdir()
             (sounds / "привет.ogg").write_bytes(b"ogg")
             items = self.library(root, sounds).scan()
-            self.assertEqual(items[0].name, "привет")
+            self.assertEqual(items[0].display_name, "привет")
 
     def test_library_duplicate_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,6 +103,88 @@ class LibraryTests(unittest.TestCase):
             items = self.library(root, sounds).scan()
             self.assertEqual(len(items), 2)
             self.assertNotEqual(items[0].id, items[1].id)
+
+    def test_library_skips_symlink_that_escapes_root_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sounds = root / "sounds"
+            outside = root / "outside"
+            sounds.mkdir()
+            outside.mkdir()
+            target = outside / "secret.wav"
+            target.write_bytes(b"wav")
+            link = sounds / "linked.wav"
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+
+            items = self.library(root, sounds).scan()
+
+            self.assertEqual(items, [])
+
+    def test_library_can_allow_symlink_that_escapes_root_explicitly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sounds = root / "sounds"
+            outside = root / "outside"
+            sounds.mkdir()
+            outside.mkdir()
+            target = outside / "allowed.wav"
+            target.write_bytes(b"wav")
+            link = sounds / "linked.wav"
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+            settings = Settings(
+                library_dirs=[str(sounds)],
+                allow_symlinks_outside_libraries=True,
+            )
+            library = SoundLibrary(self.paths(root), settings)
+
+            items = library.scan()
+
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].path, str(target.resolve()))
+            self.assertEqual(items[0].relative_path, "linked.wav")
+
+    def test_legacy_cache_ignores_removed_sound_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            library = self.library(root, root / "sounds")
+            library.paths.runtime_dir.mkdir(parents=True)
+            library.paths.library_cache_file.write_text(
+                json.dumps(
+                    {
+                        "last_scan_at": "2026-01-01T00:00:00+00:00",
+                        "items": [
+                            {
+                                "id": "sha1:test",
+                                "name": "legacy",
+                                "display_name": "Legacy",
+                                "path": str(root / "sounds" / "legacy.wav"),
+                                "relative_path": "legacy.wav",
+                                "category": "uncategorized",
+                                "extension": ".wav",
+                                "size_bytes": 12,
+                                "modified_at": "2026-01-01T00:00:00+00:00",
+                                "duration_ms": None,
+                                "tags": [],
+                                "volume": 1.0,
+                                "favorite": False,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            items = library.cached_items()
+
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].display_name, "Legacy")
+            self.assertEqual(items[0].relative_path, "legacy.wav")
 
 
 if __name__ == "__main__":

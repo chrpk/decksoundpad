@@ -291,7 +291,6 @@ class LowLatencyRawMixer:
         self.logger = logger or logging.getLogger("decksoundpad.low_latency")
         self._lock = threading.RLock()
         self._samples: dict[tuple[Path, int, int], bytes] = {}
-        self._preloading: set[tuple[Path, int, int]] = set()
         self._active: list[QueuedSample] = []
         self._process: subprocess.Popen[bytes] | None = None
         self._thread: threading.Thread | None = None
@@ -324,40 +323,9 @@ class LowLatencyRawMixer:
             self._ffmpeg_available = command_exists("ffmpeg")
         return self._ffmpeg_available
 
-    def active_count(self) -> int:
+    def _active_count(self) -> int:
         with self._lock:
             return len(self._active)
-
-    def preload_many(self, paths: Sequence[Path]) -> None:
-        if paths and self.is_available():
-            try:
-                self._ensure_stream()
-            except Exception as exc:
-                self.logger.debug("low latency stream warmup failed error=%s", exc)
-        for path in paths:
-            self.preload(path)
-
-    def preload(self, path: Path) -> None:
-        if not self.can_play(path):
-            return
-        key = self._cache_key(path)
-        with self._lock:
-            if key in self._samples or key in self._preloading:
-                return
-            self._preloading.add(key)
-
-        def run() -> None:
-            try:
-                data = self._decode(path)
-                with self._lock:
-                    self._samples[key] = data
-            except Exception as exc:
-                self.logger.debug("low latency preload failed path=%s error=%s", path, exc)
-            finally:
-                with self._lock:
-                    self._preloading.discard(key)
-
-        threading.Thread(target=run, name="decksoundpad-preload-sound", daemon=True).start()
 
     def play(self, sound_id: str, path: Path, volume: float) -> str:
         if not self.can_play(path):
@@ -377,11 +345,11 @@ class LowLatencyRawMixer:
         with self._lock:
             self._active.clear()
 
-    def stop_sound(self, sound_id: str) -> None:
+    def _stop_sound(self, sound_id: str) -> None:
         with self._lock:
             self._active = [sample for sample in self._active if sample.sound_id != sound_id]
 
-    def stop_playback(self, playback_id: str) -> bool:
+    def _stop_playback(self, playback_id: str) -> bool:
         with self._lock:
             before = len(self._active)
             self._active = [sample for sample in self._active if sample.playback_id != playback_id]
@@ -565,13 +533,6 @@ class PlaybackManager:
             [backend.name for backend in self.backends],
         )
 
-    def active_count(self) -> int:
-        self._collect_finished()
-        return len(self.playbacks) + self.low_latency.active_count()
-
-    def preload(self, paths: Sequence[Path]) -> None:
-        self.low_latency.preload_many(paths)
-
     def play(
         self,
         sound_id: str,
@@ -594,8 +555,8 @@ class PlaybackManager:
         if self.settings.overlap_mode == "single":
             self.stop_all(reason="overlap_mode_single")
         elif self.settings.overlap_mode == "per_sound":
-            self.stop_sound(sound_id, reason="overlap_mode_per_sound")
-        elif len(self.playbacks) + self.low_latency.active_count() >= self.settings.max_concurrent_sounds:
+            self._stop_sound(sound_id, reason="overlap_mode_per_sound")
+        elif len(self.playbacks) + self.low_latency._active_count() >= self.settings.max_concurrent_sounds:
             raise RuntimeError("maximum concurrent sounds reached")
 
         effective_volume = volume if volume is not None else self.settings.master_volume
@@ -694,17 +655,17 @@ class PlaybackManager:
     def stop_all(self, *, reason: str = "manual_stop") -> None:
         self.low_latency.stop_all()
         for playback_id in list(self.playbacks):
-            self.stop_playback(playback_id, reason=reason)
+            self._stop_playback(playback_id, reason=reason)
 
-    def stop_sound(self, sound_id: str, *, reason: str = "manual_stop") -> None:
-        self.low_latency.stop_sound(sound_id)
+    def _stop_sound(self, sound_id: str, *, reason: str = "manual_stop") -> None:
+        self.low_latency._stop_sound(sound_id)
         for playback_id, playback in list(self.playbacks.items()):
             if playback.sound_id == sound_id:
-                self.stop_playback(playback_id, reason=reason)
+                self._stop_playback(playback_id, reason=reason)
 
-    def stop_playback(self, playback_id: str, *, reason: str = "manual_stop") -> None:
+    def _stop_playback(self, playback_id: str, *, reason: str = "manual_stop") -> None:
         if playback_id.startswith("ll_"):
-            if self.low_latency.stop_playback(playback_id):
+            if self.low_latency._stop_playback(playback_id):
                 self.logger.info(
                     "low latency playback stopped playback_id=%s reason=%s",
                     playback_id,
@@ -740,7 +701,7 @@ class PlaybackManager:
         timer.start()
 
     def _stop_playback_due_to_time_limit(self, playback_id: str) -> None:
-        self.stop_playback(playback_id, reason="time_limit")
+        self._stop_playback(playback_id, reason="time_limit")
 
     def _collect_finished(self) -> None:
         for playback_id, playback in list(self.playbacks.items()):

@@ -38,7 +38,6 @@ class FakeBackendApp:
         self.settings = settings or Settings()
         self.player = FakePlayer()
         self.play_payloads: list[dict[str, object]] = []
-        self.stop_payloads: list[dict[str, object]] = []
         self.refresh_calls = 0
         self.repair_calls = 0
         self.raise_status = False
@@ -52,12 +51,8 @@ class FakeBackendApp:
             audio=AudioStatus(state="ready"),
             player=PlayerStatus(
                 backend="fake",
-                pw_play_available=True,
-                ffmpeg_available=False,
-                mpv_available=False,
-                active_playbacks=0,
             ),
-            library=LibraryStatus(count=0, last_scan_at=None),
+            library=LibraryStatus(count=0),
         ).to_dict()
         status["version"] = "test"
         return status
@@ -69,16 +64,9 @@ class FakeBackendApp:
         self.play_payloads.append(payload)
         return {"ok": True, "playback_id": "pb-1", "sound_id": payload["sound_id"]}
 
-    def stop(self, payload: dict[str, object]) -> dict[str, object]:
-        self.stop_payloads.append(payload)
-        return {"ok": True}
-
     def refresh_library(self) -> dict[str, object]:
         self.refresh_calls += 1
         return {"ok": True, "sounds": [{"id": "sound-1"}]}
-
-    def ensure_audio(self) -> dict[str, object]:
-        return AudioStatus(last_error="Audio ensure started", state="starting").to_dict()
 
     def repair_audio(self) -> dict[str, object]:
         self.repair_calls += 1
@@ -219,7 +207,10 @@ class MainBridgeTests(unittest.TestCase):
                 },
                 clear=False,
             ), patch("main.decky.DECKY_PLUGIN_DIR", str(plugin_dir), create=True):
-                asyncio.run(plugin._main())
+                try:
+                    asyncio.run(plugin._main())
+                finally:
+                    asyncio.run(plugin._unload())
 
         self.assertTrue(plugin.started)
 
@@ -243,6 +234,18 @@ class MainBridgeTests(unittest.TestCase):
             patch("main.os.geteuid", return_value=1000),
         ):
             self.assertTrue(_input_hotkey_monitor_enabled())
+
+    def test_hidraw_monitor_does_not_start_without_root_input_access(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            with (
+                patch.dict("main.os.environ", {}, clear=True),
+                patch("main.os.geteuid", return_value=1000),
+            ):
+                plugin._start_hidraw_monitor()
+
+        self.assertIsNone(plugin._hidraw_thread)
+        self.assertIn("no root hidraw access", "\n".join(plugin._bridge_errors))
 
     def test_bridge_log_is_written_to_public_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -274,7 +277,7 @@ class MainBridgeTests(unittest.TestCase):
             plugin = DirectPlugin(Path(tmp))
             plugin.fake_app.sounds = [{"id": f"sound-{index}"} for index in range(23)]
 
-            response = plugin._play_previous_external_overlay_sound_sync()
+            response = plugin._play_previous_external_overlay_sound()
 
         self.assertTrue(response["ok"])
         self.assertEqual(plugin.fake_app.play_payloads, [{"sound_id": "sound-22", "volume": None}])

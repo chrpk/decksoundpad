@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
@@ -10,18 +10,11 @@ OverlapMode = Literal["overlap", "single", "per_sound"]
 @dataclass(frozen=True)
 class SoundItem:
     id: str
-    name: str
     display_name: str
     path: str
     relative_path: str
     category: str
     extension: str
-    size_bytes: int
-    modified_at: str
-    duration_ms: int | None = None
-    tags: list[str] = field(default_factory=list)
-    volume: float = 1.0
-    favorite: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -48,9 +41,6 @@ class AudioModule:
 class AudioProbe:
     pipewire_available: bool
     pactl_available: bool
-    pw_play_available: bool
-    ffmpeg_available: bool
-    mpv_available: bool
     last_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,10 +68,6 @@ class AudioStatus:
 @dataclass(frozen=True)
 class PlayerStatus:
     backend: str | None
-    pw_play_available: bool
-    ffmpeg_available: bool
-    mpv_available: bool
-    active_playbacks: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -90,7 +76,6 @@ class PlayerStatus:
 @dataclass(frozen=True)
 class LibraryStatus:
     count: int
-    last_scan_at: str | None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
