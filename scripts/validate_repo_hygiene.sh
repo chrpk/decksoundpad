@@ -30,6 +30,8 @@ required_files=(
   "docs/ARCHITECTURE.md"
   "docs/BRIDGE_API.md"
   "docs/COMPATIBILITY.md"
+  "docs/DECKBREW_SUBMISSION_CHECKLIST.md"
+  "docs/DECKBREW_SUBMISSION_EVIDENCE.md"
   "docs/DIAGNOSTICS.md"
   "docs/EXTERNAL_OVERLAY_POC.md"
   "docs/HARDWARE_VALIDATION.md"
@@ -51,6 +53,7 @@ required_files=(
   "rollup.config.js"
   "scripts/validate_source_archive.sh"
   "scripts/validate_publication_readiness.sh"
+  "scripts/validate_deckbrew_submission.sh"
   "src/buildInfo.ts"
   "tsconfig.json"
 )
@@ -175,6 +178,7 @@ for (const requiredText of [
 const requiredValidationCommands = [
   "corepack pnpm run check",
   "corepack pnpm run validate:repo",
+  "corepack pnpm run validate:deckbrew",
   "corepack pnpm run validate:source-archive",
   "corepack pnpm run validate:licenses",
   "corepack pnpm run scan:secrets",
@@ -326,8 +330,11 @@ for (const requiredText of [
 const publicationRunbook = read("docs/PUBLICATION_RUNBOOK.md");
 for (const requiredText of [
   "docs/REPOSITORY_SETTINGS.md",
+  "docs/DECKBREW_SUBMISSION_CHECKLIST.md",
+  "docs/DECKBREW_SUBMISSION_EVIDENCE.md",
   "docs/INSTALLATION.md",
   "corepack pnpm run validate:publication",
+  "DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION",
   "DECKSOUNDPAD_HARDWARE_VALIDATION_EVIDENCE",
   "exact uploaded ZIP",
   "later local rebuild",
@@ -386,6 +393,11 @@ for (const requiredText of [
 
 const publicationReadiness = read("scripts/validate_publication_readiness.sh");
 for (const requiredText of [
+  "DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION",
+  "DECKSOUNDPAD_PUBLIC_REPOSITORY_EVIDENCE",
+  "DECKSOUNDPAD_LLM_CODE_PROVENANCE_EVIDENCE",
+  "DECKSOUNDPAD_DECKBREW_DATABASE_PR_EVIDENCE",
+  "DECKSOUNDPAD_DECKBREW_STEAMOS_TEST_EVIDENCE",
   "DECKSOUNDPAD_REPOSITORY_SETTINGS_APPLIED",
   "DECKSOUNDPAD_PRIVATE_VULN_REPORTING_CONFIRMED",
   "DECKSOUNDPAD_SECURITY_CONTACT_EVIDENCE",
@@ -592,6 +604,7 @@ for (const requiredText of [
   "CHECKSUM_TOOL=\"shasum\"",
   "CHECKSUM_TOOL=\"sha256sum\"",
   "bash scripts/validate_source_archive.sh",
+  "bash scripts/validate_deckbrew_submission.sh",
   "dist/index.js",
   "__BUILD_DATETIME__|__PACKAGE_VERSION__",
   "grep -Fq \"\\\"${VERSION}\\\"\" dist/index.js",
@@ -682,15 +695,23 @@ for (const workflow of workflowFiles) {
   }
   const isCodeqlWorkflow = workflow.endsWith("/codeql.yml") || workflow.endsWith("/codeql.yaml");
   const isDependencyReviewWorkflow = workflow.endsWith("/dependency-review.yml") || workflow.endsWith("/dependency-review.yaml");
+  const isReleaseWorkflow = workflow.endsWith("/release.yml") || workflow.endsWith("/release.yaml");
   if (isCodeqlWorkflow) {
     if (!/^permissions:\n\s+contents:\s+read\n\s+security-events:\s+write$/m.test(text)) {
       fail(`${workflow} must grant only contents: read and security-events: write for CodeQL result upload`);
+    }
+  } else if (isReleaseWorkflow) {
+    if (!/^permissions:\n\s+contents:\s+write$/m.test(text)) {
+      fail(`${workflow} must grant contents: write so it can publish GitHub Release assets`);
     }
   } else if (!/^permissions:\n\s+contents:\s+read$/m.test(text)) {
     fail(`${workflow} must set read-only contents permissions`);
   }
   if (!isCodeqlWorkflow && text.includes("security-events: write")) {
     fail(`${workflow} must not request security-events: write outside the CodeQL workflow`);
+  }
+  if (!isReleaseWorkflow && text.includes("contents: write")) {
+    fail(`${workflow} must not request contents: write outside the release publishing workflow`);
   }
   if (text.includes("pull-requests: write")) {
     fail(`${workflow} must not request pull-requests: write; dependency review PR comments stay disabled`);
@@ -742,6 +763,24 @@ for (const workflow of workflowFiles) {
     }
     if (/out\/DeckSoundpad-v\*-full\.zip/.test(text)) {
       fail(`${workflow} must not upload release artifacts using broad version wildcards`);
+    }
+  }
+  if (isReleaseWorkflow) {
+    for (const requiredText of [
+      "workflow_dispatch:",
+      "publish_release:",
+      "DECKSOUNDPAD_REQUIRE_TAG: \"1\"",
+      "DECKSOUNDPAD_TAG=v$VERSION",
+      "gh release view",
+      "gh release upload",
+      "gh release create",
+      "--verify-tag",
+      "--generate-notes",
+      "--clobber",
+    ]) {
+      if (!text.includes(requiredText)) {
+        fail(`${workflow} must support GitHub release package publishing: ${requiredText}`);
+      }
     }
   }
   if (isCodeqlWorkflow) {
@@ -885,6 +924,7 @@ for (const required of [
   "*.pid",
   ".env",
   ".DS_Store",
+  "CLAUDE.md",
   ".pytest_cache/",
   ".mypy_cache/",
   ".ruff_cache/",
@@ -939,6 +979,7 @@ for (const required of [
   "*.py[cod] export-ignore",
   "*.pid export-ignore",
   ".DS_Store export-ignore",
+  "CLAUDE.md export-ignore",
   "*.log export-ignore",
   "*.log.* export-ignore",
 ]) {

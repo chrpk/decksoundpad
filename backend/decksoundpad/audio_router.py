@@ -285,6 +285,8 @@ class AudioRouter:
             and SINK_NAME in module.args
             for module in modules
         )
+        # A loopback from our virtual mic back into our own sink feeds the sound
+        # pad into itself, so report it as an error instead of "ready".
         status = AudioStatus(
             pipewire_available=True,
             pactl_available=True,
@@ -307,6 +309,8 @@ class AudioRouter:
         modules = self.list_modules()
         state = self._load_module_state()
 
+        # Discovery is the source of truth. The saved ids only help diagnostics,
+        # because PipeWire module ids can change across unloads and restarts.
         if not status.sink_exists and self._null_sink_module(modules) is None:
             module_id = self._load_null_sink()
             state = self._store_module_id(
@@ -393,6 +397,8 @@ class AudioRouter:
         if module_id is not None and self._wait_for_source(MIC_NAME):
             return module_id
 
+        # SteamOS images do not all expose the same Pulse modules, so try the
+        # modern virtual source first and fall back to remap-source if needed.
         if module_id is not None:
             self.runner.run(["pactl", "unload-module", str(module_id)], timeout=PACTL_UNLOAD_TIMEOUT)
 
@@ -489,6 +495,8 @@ class AudioRouter:
             parsed = json_parser(result.stdout)
             if parsed:
                 return parsed
+        # JSON output carries descriptions, but older pactl builds may lack it
+        # or emit partial data; the short format is enough for repair decisions.
         result = self.runner.run(short_args, timeout=PACTL_LIST_TIMEOUT)
         if not result.ok:
             return empty
@@ -600,6 +608,7 @@ class AudioRouter:
             return self.settings.selected_mic_source
 
         default_source = self.get_default_source()
+        # Prefer the user's active system mic when no configured mic is valid.
         if default_source in names:
             return default_source
 

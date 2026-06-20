@@ -12,6 +12,7 @@ __pycache__/
 *.pid
 .env
 .DS_Store
+CLAUDE.md
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

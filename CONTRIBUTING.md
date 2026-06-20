@@ -55,6 +55,7 @@ Before opening a pull request, run:
 ```bash
 corepack pnpm run check
 corepack pnpm run validate:repo
+corepack pnpm run validate:deckbrew
 corepack pnpm run validate:source-archive
 corepack pnpm run validate:licenses
 corepack pnpm run scan:secrets
@@ -138,6 +139,7 @@ Before tagging a public release:
 - [ ] Run `corepack pnpm install --frozen-lockfile` from a clean checkout.
 - [ ] Run `corepack pnpm run check`.
 - [ ] Run `corepack pnpm run validate:repo`.
+- [ ] Run `corepack pnpm run validate:deckbrew`.
 - [ ] Run `corepack pnpm run validate:source-archive`.
 - [ ] Run `corepack pnpm run validate:licenses`.
 - [ ] Run `corepack pnpm run scan:secrets`.

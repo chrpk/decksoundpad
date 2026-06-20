@@ -363,6 +363,8 @@ class LowLatencyRawMixer:
             return cached
         data = self._decode(path)
         with self._lock:
+            # Decoding dominates first-play latency, so cache raw PCM until the
+            # source file changes size or mtime.
             self._samples[key] = data
         return data
 
@@ -457,6 +459,8 @@ class LowLatencyRawMixer:
                 running = self._running
             if not running or process is None or process.stdin is None:
                 return
+            # Keep pacat alive with silence between samples so later triggers can
+            # join the existing stream instead of spawning a fresh process.
             chunk = self._next_chunk()
             try:
                 process.stdin.write(chunk)
@@ -593,6 +597,8 @@ class PlaybackManager:
 
         errors: list[str] = []
         for backend in backends:
+            # Backends vary across SteamOS images; try every usable backend before
+            # surfacing a playback error to the UI.
             commands = [backend.build_command(path, effective_volume, target=SINK_NAME)]
             playback_id = f"pb_{time.time_ns()}"
             processes: list[subprocess.Popen[bytes]] = []
@@ -760,6 +766,8 @@ class PlaybackManager:
                 env=env,
             )
             if previous_stdout is not None:
+                # The child now owns the read side of the previous pipe; closing
+                # our copy lets upstream commands receive SIGPIPE on failures.
                 previous_stdout.close()
             previous_stdout = process.stdout
             processes.append(process)
@@ -879,6 +887,8 @@ def terminate_process_groups(
     killpg=os.killpg,
     sleeper=time.sleep,
 ) -> None:
+    # Playback commands run in their own sessions, so killing process groups also
+    # stops helper children such as ffmpeg -> pacat pipelines.
     for pid in pids:
         try:
             killpg(pid, signal.SIGTERM)

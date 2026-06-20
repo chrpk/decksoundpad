@@ -6,6 +6,7 @@
 
 - [ ] `corepack pnpm run check`
 - [ ] `corepack pnpm run validate:repo`
+- [ ] `corepack pnpm run validate:deckbrew`
 - [ ] `corepack pnpm run validate:source-archive`
 - [ ] `corepack pnpm run validate:licenses`
 - [ ] `corepack pnpm run scan:secrets`

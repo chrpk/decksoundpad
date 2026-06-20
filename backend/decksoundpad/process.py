@@ -43,6 +43,8 @@ def decky_runtime_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
 
 def _select_audio_runtime_dir(env: Mapping[str, str]) -> str:
     candidates = _runtime_dir_candidates(env)
+    # Audio commands must talk to the Steam user's Pulse socket, not the root
+    # runtime that Decky may inherit when the plugin has elevated permissions.
     for runtime_dir in candidates:
         if (Path(runtime_dir) / "pulse" / "native").exists():
             return runtime_dir
@@ -65,6 +67,8 @@ def _runtime_dir_candidates(env: Mapping[str, str]) -> list[str]:
         if uid is not None:
             add(f"/run/user/{uid}")
 
+    # Decky exposes the target user's home more reliably than a UID in some
+    # launch paths; stat it to recover the matching /run/user/<uid> directory.
     decky_user_home = env.get("DECKY_USER_HOME")
     if decky_user_home:
         try:

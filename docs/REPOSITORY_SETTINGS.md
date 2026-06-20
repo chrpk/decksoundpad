@@ -45,8 +45,8 @@ organization-owned repositories where the Gitleaks action requires it.
 
 Keep workflow definitions consistent with `corepack pnpm run validate:repo`:
 actions pinned to approved major versions, no `pull_request_target`, no broad
-write permissions, disabled checkout credential persistence, timeouts, and
-concurrency.
+write permissions outside the release publisher, disabled checkout credential
+persistence, timeouts, and concurrency.
 
 ## Branch And Tag Protection
 
@@ -82,6 +82,7 @@ Before publishing each GitHub Release, the release issue should include:
   supplied.
 - `Tagged Release Artifact` workflow URL.
 - `CodeQL`, `Dependency Review`, and full-history secret-scan results.
-- ZIP filename and SHA-256 checksum from the tagged workflow artifact.
+- ZIP filename and SHA-256 checksum from the GitHub Release assets published by
+  the tagged workflow.
 - Steam Deck hardware validation evidence.
 - Decky Store image URL when submitting to the Decky plugin index.

@@ -6,7 +6,9 @@ This project uses semantic versioning once public releases begin.
 
 ## Unreleased
 
-No public changes yet.
+### Added
+
+- Deckbrew submission checklist and local validation gate.
 
 ## 0.1.28 - 2026-06-20
 

@@ -31,6 +31,8 @@ export function useDeckSoundpadData() {
     try {
       if (!status?.backend_running) {
         await startBackend();
+        // Decky callables return before the backend has finished repairing the
+        // audio route, so give the worker one short tick before refreshing.
         await delay(700);
       }
       const response = await refreshLibrary();

@@ -16,6 +16,11 @@ Compared references, rechecked on 2026-06-20:
   convention. The wiki's pnpm section still mentions older lockfile guidance,
   while the current template recommends pnpm v9; re-check this before a Decky
   Store submission.
+- [Deckbrew plugin submission docs](https://wiki.deckbrew.xyz/en/plugin-dev/submitting-plugins):
+  define the current plugin database submission rules: public inspectable
+  repositories, a license file, no black-box binaries, no LLM-based code or
+  LLM-focused plugin behavior, no keyshop links, backend checklist answers, and
+  real Steam Deck testing evidence on SteamOS.
 - [SteamGridDB decky-steamgriddb](https://github.com/SteamGridDB/decky-steamgriddb):
   a mature Decky plugin with public README, MIT license, package metadata, and
   repository-centered distribution.
@@ -206,10 +211,32 @@ Added during open-source preparation:
   - Evidence needed: `plugin.json` `publish.image` points to an HTTPS PNG URL.
   - Current support: `DECKSOUNDPAD_REQUIRE_PUBLISH_IMAGE=1 corepack pnpm run
     validate:release` enforces this when validating a store submission.
+  - Current support: `DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION=1 corepack pnpm
+    run validate:release` also enforces this for Deckbrew plugin-index
+    submission.
   - Current support: `docs/RELEASE_ASSETS.md` defines image-content rules and
     forbids placeholder image URLs.
   - This is not required for a GitHub source release, but is required before
     treating the project as ready for a Decky Store or plugin-index listing.
+- [ ] Open the Deckbrew / Decky Plugin Database submission pull request.
+  - Evidence needed: public repository URL and plugin database pull request or
+    draft pull request showing the repository as a submodule under `plugins/`.
+  - Evidence needed: maintainer-owned evidence that the submitted commit
+    satisfies Deckbrew's LLM/code-provenance rule.
+  - Current support: `docs/DECKBREW_SUBMISSION_CHECKLIST.md` records the
+    Deckbrew rule mapping, backend checklist answers, and remaining external
+    evidence.
+  - Current support: `docs/DECKBREW_SUBMISSION_EVIDENCE.md` provides the
+    concrete evidence template for the submitted commit, public repository,
+    database pull request, hardware validation, media, and release artifacts.
+  - Current support: `corepack pnpm run validate:deckbrew` rejects tracked
+    opaque binary/archive files, source maps, minified review targets,
+    LLM-provider runtime signals, paid-feature/payment signals, and known
+    keyshop links.
+  - Current support: `DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION=1 corepack pnpm
+    run validate:publication` requires public repository evidence, Deckbrew
+    LLM/code-provenance evidence, SteamOS test evidence, and Decky Plugin
+    Database PR evidence.
 - [ ] Confirm the `root` flag is still required.
   - Evidence needed: hardware validation showing which input/overlay features
     fail without root, or a patch removing the flag.
@@ -226,8 +253,9 @@ Added during open-source preparation:
     DECKSOUNDPAD_REQUIRE_TAG=1 corepack pnpm run validate:release` enforces a
     clean worktree and matching `vX.Y.Z` git tag for actual release builds.
   - Current support: `.github/workflows/release.yml` runs the strict tagged
-    release gate for `v*` tag pushes and uploads the ZIP plus checksum as a
-    workflow artifact.
+    release gate for `v*` tag pushes and manual tagged runs, uploads the ZIP
+    plus checksum as a workflow artifact, and attaches both files to the
+    matching GitHub Release.
   - Current support: `docs/RELEASE_NOTES_TEMPLATE.md` captures release
     checksum, manifest, hardware evidence, root-flag status, asset locations,
     full-history secret-scan result, and tagged workflow URL.
@@ -313,12 +341,13 @@ Added during open-source preparation:
     repository publication.
 - [x] Add tagged release artifact CI.
   - Evidence: `.github/workflows/release.yml` runs strict release validation on
-    pushed `v*` tags with clean-tree and tag checks enabled, then uploads the
-    current package-version ZIP and checksum as workflow artifacts.
+    pushed `v*` tags or manual tagged runs with clean-tree and tag checks
+    enabled, then uploads the current package-version ZIP and checksum as
+    workflow artifacts and GitHub Release assets.
   - Evidence: `corepack pnpm run validate:repo` checks all workflows for
-    read-only contents permissions, concurrency, timeouts, disabled checkout
-    credential persistence, exact current-version artifact upload paths, and
-    absence of `pull_request_target`.
+    least-privilege contents permissions, concurrency, timeouts, disabled
+    checkout credential persistence, exact current-version artifact upload
+    paths, and absence of `pull_request_target`.
   - Remaining validation: first tag workflow run after repository publication.
 - [x] Add automated committed-secret scanning.
   - Evidence: `.github/workflows/secret-scan.yml` runs Gitleaks against full
@@ -438,6 +467,16 @@ Added during open-source preparation:
     present.
   - Evidence: `corepack pnpm run validate:repo` checks that the publication
     gate and publication runbook list the required evidence variables.
+- [x] Add a Deckbrew submission readiness gate.
+  - Evidence: `docs/DECKBREW_SUBMISSION_CHECKLIST.md` maps the current
+    Deckbrew submission rules to DeckSoundpad-specific evidence, the
+    LLM/code-provenance blocker, and backend checklist answers.
+  - Evidence: `corepack pnpm run validate:deckbrew` checks local source and
+    metadata for Deckbrew-disallowed binary, minified, LLM-provider, payment,
+    and keyshop-link signals.
+  - Evidence: `corepack pnpm run validate:release` runs the Deckbrew gate, and
+    `DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION=1` enables the final
+    plugin-index image requirement.
 - [x] Add maintainer triage and release-owner guidance.
   - Evidence: `docs/MAINTAINER_GUIDE.md` documents label use, issue flow, PR
     review, release promotion, security report handling, and dependency update

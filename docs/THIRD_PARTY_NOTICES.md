@@ -51,6 +51,8 @@ CC BY 4.0. Keep this attribution section current if icon imports change.
 | `@decky/rollup` | 1.0.2 | BSD-3-Clause |
 | `@decky/ui` | 4.11.6 | LGPL-2.1 |
 | `@types/react` | 19.1.1 | MIT |
+| `@types/react-dom` | 19.1.1 | MIT |
+| `react-router` | 7.18.0 | MIT |
 | `rollup` | 4.62.0 | MIT |
 | `typescript` | 5.9.3 | Apache-2.0 |
 

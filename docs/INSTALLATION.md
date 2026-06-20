@@ -7,7 +7,8 @@ complete.
 ## Install From A Release ZIP
 
 1. Download `DeckSoundpad-vX.Y.Z-full.zip` and its `.sha256` file from the
-   GitHub Release or tagged workflow artifact.
+   GitHub Release assets. If a release has not been published yet, use the
+   tagged `Tagged Release Artifact` workflow artifact for the same tag.
 2. Verify that the checksum in the `.sha256` file matches the ZIP you
    downloaded.
 3. Install through Decky Loader's plugin developer tools when available.

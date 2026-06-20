@@ -65,6 +65,8 @@ class DeckSoundpadApp:
         with self._status_cache_lock:
             if self._status_cache is not None:
                 return self._status_cache
+        # Frontend status polling must stay responsive while the first full
+        # PipeWire healthcheck is still running in the startup worker.
         return self._status_payload(AudioStatus(last_error="Audio status pending", state="pending"))
 
     def _status_payload(self, audio_status: AudioStatus) -> dict[str, Any]:
@@ -139,6 +141,8 @@ class DeckSoundpadApp:
             if self._can_play_hot(sound_path):
                 route_status = self._cached_ready_playback_route_status()
                 if route_status is None:
+                    # Low-latency playback should not block on route repair;
+                    # start the repair in the background and let playback try.
                     self._schedule_playback_route_check()
                     route_status = AudioStatus(last_error="Audio route check scheduled", state="pending")
             else:
@@ -280,6 +284,7 @@ class DeckSoundpadApp:
         ):
             return None
         age_seconds = time.monotonic() - checked_at
+        # PipeWire routes are cheap to recheck, but not on every sound trigger.
         if age_seconds > PLAYBACK_ROUTE_READY_CACHE_SECONDS:
             return None
         return status, age_seconds
@@ -372,6 +377,8 @@ class DeckSoundpadApp:
             self.router = AudioRouter(self.paths, self.settings)
             self.player.settings = self.settings
             if self.settings.mic_passthrough_enabled != previous_mic_passthrough:
+                # Changing mic passthrough adds or removes a loopback module, so
+                # rebuild the audio route immediately instead of waiting for play.
                 status = self.router.ensure()
             else:
                 status = self.router.healthcheck()

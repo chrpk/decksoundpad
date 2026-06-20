@@ -125,14 +125,29 @@ DECKSOUNDPAD_REQUIRE_CLEAN_TREE=1 DECKSOUNDPAD_REQUIRE_TAG=1 corepack pnpm run v
 Push the matching `vX.Y.Z` tag only after strict local validation passes. The
 `Tagged Release Artifact` workflow then validates the same tagged commit with
 the clean-tree and tag gates enabled. It derives the expected artifact version
-from `package.json` and uploads only the matching ZIP plus checksum as a
-workflow artifact.
+from `package.json`, uploads only the matching ZIP plus checksum as a workflow
+artifact, and attaches the same files to the matching GitHub Release.
 
 For a Decky Store or plugin-index submission, also run:
 
 ```bash
 DECKSOUNDPAD_REQUIRE_PUBLISH_IMAGE=1 corepack pnpm run validate:release
 ```
+
+For a Deckbrew / Decky Plugin Database submission, also keep
+`docs/DECKBREW_SUBMISSION_CHECKLIST.md` and
+`docs/DECKBREW_SUBMISSION_EVIDENCE.md` current and run:
+
+```bash
+corepack pnpm run validate:deckbrew
+DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION=1 corepack pnpm run validate:release
+```
+
+The Deckbrew gate rejects tracked opaque binaries, source maps, minified
+review targets, LLM-provider runtime signals, paid-feature/payment signals, and
+known keyshop links. It also requires an HTTPS PNG `plugin.json`
+`publish.image` and maintainer LLM/code-provenance evidence when
+`DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION=1`.
 
 Attach the output or summarize:
 
@@ -150,6 +165,7 @@ Attach the output or summarize:
 - CodeQL code scanning result;
 - Dependency Review workflow result for dependency or GitHub Actions changes;
 - `Tagged Release Artifact` workflow run URL.
+- GitHub Release URL containing the ZIP and checksum assets.
 
 If creating a GitHub source archive or exported source tarball, rely on
 `.gitattributes` `export-ignore` rules and verify the candidate archive policy
@@ -183,7 +199,8 @@ Before publishing:
 - Confirm `CHANGELOG.md` has an entry for the release.
 - Confirm `docs/OPEN_SOURCE_READINESS.md` has evidence for all release blockers.
 - Confirm the ZIP and `.sha256` files came from the strict tagged-release
-  validation command above or the `Tagged Release Artifact` workflow.
+  validation command above or the GitHub Release assets published by the
+  `Tagged Release Artifact` workflow.
 - Treat the checksum as evidence for that exact uploaded ZIP. Do not substitute
   a checksum from a later local rebuild because `RELEASE_MANIFEST.json`
   includes build-specific `generatedAt` evidence.
@@ -219,6 +236,23 @@ Publication readiness variables:
 For Decky Store or plugin-index submission, also set
 `DECKSOUNDPAD_REQUIRE_DECKY_STORE=1` so `validate:publication` requires an
 HTTPS PNG `plugin.json` `publish.image`.
+
+For Deckbrew / Decky Plugin Database submission, set
+`DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION=1` and also provide:
+
+- `DECKSOUNDPAD_PUBLIC_REPOSITORY_EVIDENCE=<https URL or file>`
+- `DECKSOUNDPAD_LLM_CODE_PROVENANCE_EVIDENCE=<https URL or file>`
+- `DECKSOUNDPAD_DECKBREW_STEAMOS_TEST_EVIDENCE=<https URL or file>`
+- `DECKSOUNDPAD_DECKBREW_DATABASE_PR_EVIDENCE=<https URL or file>`
+
+`DECKSOUNDPAD_DECKBREW_DATABASE_PR_EVIDENCE` should point to the Decky Plugin
+Database pull request or draft pull request showing this public repository as a
+submodule under `plugins/`.
+`DECKSOUNDPAD_LLM_CODE_PROVENANCE_EVIDENCE` should point to maintainer-owned
+evidence for the exact submitted commit, because Deckbrew's LLM/code-provenance
+rule cannot be proven by static repository scanning alone.
+The same evidence links should be mirrored in
+`docs/DECKBREW_SUBMISSION_EVIDENCE.md` or in a linked release issue.
 
 Upload:
 

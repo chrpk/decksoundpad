@@ -143,6 +143,7 @@ if (process.env.DECKSOUNDPAD_REQUIRE_PUBLISH_IMAGE === '1') {
 
 bash scripts/validate_repo_hygiene.sh
 bash scripts/validate_source_archive.sh
+bash scripts/validate_deckbrew_submission.sh
 corepack pnpm install --frozen-lockfile --ignore-scripts
 bash scripts/validate_license_notices.sh
 corepack pnpm run check
@@ -192,6 +193,8 @@ required_entries=(
   "DeckSoundpad/docs/ARCHITECTURE.md"
   "DeckSoundpad/docs/BRIDGE_API.md"
   "DeckSoundpad/docs/COMPATIBILITY.md"
+  "DeckSoundpad/docs/DECKBREW_SUBMISSION_CHECKLIST.md"
+  "DeckSoundpad/docs/DECKBREW_SUBMISSION_EVIDENCE.md"
   "DeckSoundpad/docs/DIAGNOSTICS.md"
   "DeckSoundpad/docs/EXTERNAL_OVERLAY_POC.md"
   "DeckSoundpad/docs/INSTALLATION.md"

@@ -165,6 +165,8 @@ class OverlayWindow(Gtk.Window):
         context.set_operator(cairo.OPERATOR_SOURCE)
         context.paint()
         region = Gdk.cairo_region_create_from_surface(surface)
+        # An empty input shape lets games receive clicks while the hidden overlay
+        # window remains alive above them.
         self.input_shape_combine_region(region)
 
     def start_socket_server(self) -> None:
@@ -198,6 +200,8 @@ class OverlayWindow(Gtk.Window):
                         except json.JSONDecodeError as exc:
                             LOGGER.warning("invalid command: %s", exc)
                             continue
+                        # GTK widgets must be updated on the main loop, not from
+                        # the socket thread that receives backend state changes.
                         GLib.idle_add(self.apply_command, command)
         finally:
             server.close()
@@ -315,6 +319,8 @@ class OverlayWindow(Gtk.Window):
             return
         value = 1 if enabled else 0
         for atom in GAMESCOPE_OVERLAY_ATOMS:
+            # Gamescope checks these X atoms to treat the popup as an external
+            # overlay instead of a regular desktop window.
             if self.xatom_setter.set_cardinal(xid, atom, value):
                 LOGGER.info("set %s=%s xid=%s", atom, value, xid)
 
@@ -586,6 +592,8 @@ def configure_environment() -> None:
     os.environ.setdefault("GDK_BACKEND", "x11")
     os.environ.setdefault("DISPLAY", ":0")
     if "GAMESCOPE_WAYLAND_DISPLAY" in os.environ:
+        # The overlay path depends on X11 window atoms, so do not let GTK switch
+        # to Wayland just because Gamescope exported a Wayland display.
         os.environ.pop("WAYLAND_DISPLAY", None)
 
 

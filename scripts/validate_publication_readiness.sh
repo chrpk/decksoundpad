@@ -122,11 +122,33 @@ for (const phrase of [
   }
 }
 
-if (process.env.DECKSOUNDPAD_REQUIRE_DECKY_STORE === "1") {
+const deckbrewSubmissionRequired = isTruthy(env("DECKSOUNDPAD_REQUIRE_DECKBREW_SUBMISSION"));
+const deckyStoreSubmissionRequired = isTruthy(env("DECKSOUNDPAD_REQUIRE_DECKY_STORE"));
+
+if (deckbrewSubmissionRequired || deckyStoreSubmissionRequired) {
   const image = plugin.publish && plugin.publish.image;
   if (!image || !/^https:\/\/.+\.png(?:\?.*)?$/i.test(image)) {
-    fail("plugin.json publish.image must be an HTTPS PNG URL when DECKSOUNDPAD_REQUIRE_DECKY_STORE=1");
+    fail("plugin.json publish.image must be an HTTPS PNG URL for Deckbrew/plugin-index submission");
   }
+}
+
+if (deckbrewSubmissionRequired) {
+  requireEvidence(
+    "DECKSOUNDPAD_PUBLIC_REPOSITORY_EVIDENCE",
+    "the final plugin repository is public and inspectable by Deckbrew reviewers",
+  );
+  requireEvidence(
+    "DECKSOUNDPAD_LLM_CODE_PROVENANCE_EVIDENCE",
+    "maintainer evidence that the submitted commit satisfies Deckbrew's LLM/code-provenance rule",
+  );
+  requireEvidence(
+    "DECKSOUNDPAD_DECKBREW_STEAMOS_TEST_EVIDENCE",
+    "Deckbrew-required real Steam Deck hardware test evidence running SteamOS",
+  );
+  requireEvidence(
+    "DECKSOUNDPAD_DECKBREW_DATABASE_PR_EVIDENCE",
+    "Decky Plugin Database pull request or draft PR evidence with the repository submodule under plugins/",
+  );
 }
 
 requireBoolean(

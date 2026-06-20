@@ -26,6 +26,7 @@ body:
         - label: `corepack pnpm install --frozen-lockfile`
         - label: `corepack pnpm run check`
         - label: `corepack pnpm run validate:repo`
+        - label: `corepack pnpm run validate:deckbrew`
         - label: `corepack pnpm run validate:source-archive`
         - label: `corepack pnpm run validate:licenses`
         - label: `corepack pnpm run licenses:generate` was run if dependency versions changed

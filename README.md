@@ -67,6 +67,11 @@ The release artifacts are written to `out/DeckSoundpad-v<version>-full.zip` and
 This repository is not distributed through npm; `package.json` is marked
 private to keep release distribution on the Decky/GitHub ZIP path.
 
+GitHub also produces the same package from the `Tagged Release Artifact`
+workflow. Push a matching `v<version>` tag, or run the workflow manually for an
+existing tag, and it validates the package before attaching the ZIP and
+checksum to the GitHub Release.
+
 ## Install From ZIP
 
 1. Build the ZIP with `corepack pnpm run package`.

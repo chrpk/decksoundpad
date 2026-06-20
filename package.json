@@ -17,6 +17,7 @@
     "scan:secrets": "bash scripts/basic_secret_scan.sh",
     "validate:licenses": "bash scripts/validate_license_notices.sh",
     "validate:repo": "bash scripts/validate_repo_hygiene.sh",
+    "validate:deckbrew": "bash scripts/validate_deckbrew_submission.sh",
     "validate:source-archive": "bash scripts/validate_source_archive.sh",
     "validate:publication": "bash scripts/validate_publication_readiness.sh",
     "validate:release": "bash scripts/validate_release.sh"
@@ -38,6 +39,8 @@
     "@decky/rollup": "^1.0.2",
     "@decky/ui": "^4.11.0",
     "@types/react": "19.2.17",
+    "@types/react-dom": "19.1.1",
+    "react-router": "7.18.0",
     "rollup": "^4.53.3",
     "typescript": "^5.6.2"
   },

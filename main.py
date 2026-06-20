@@ -377,6 +377,8 @@ class Plugin:
             return self.paths.runtime_dir / "external-overlay"
         uid, _gid, _username, _home = identity
         user_runtime = Path(f"/run/user/{uid}")
+        # The GTK overlay must share the Steam user's runtime directory so it can
+        # reach the same X11/Gamescope sockets as the active session.
         if user_runtime.exists():
             return user_runtime / "decksoundpad"
         return self.paths.runtime_dir / "external-overlay"
@@ -404,6 +406,8 @@ class Plugin:
 
         env["GDK_BACKEND"] = "x11"
         env.setdefault("DISPLAY", ":0")
+        # Gamescope exposes an X11 path for external overlays; forcing X11 avoids
+        # GTK choosing Wayland and missing the overlay-specific X atoms.
         env.pop("WAYLAND_DISPLAY", None)
         return env
 
@@ -417,6 +421,8 @@ class Plugin:
             return None
 
         def demote() -> None:
+            # Decky may launch as root for input access, but the overlay window
+            # should run as the Steam user that owns the display session.
             os.setgid(gid)
             try:
                 os.initgroups(username, gid)
@@ -521,6 +527,8 @@ class Plugin:
                         except json.JSONDecodeError as exc:
                             self._append_bridge_log(f"external overlay action invalid json: {exc}")
                             continue
+                        # Touch events originate in the overlay process; handle
+                        # them here so playback and selection state stay in one place.
                         self._handle_external_overlay_action(command)
         except OSError as exc:
             self._append_bridge_log(f"external overlay action socket failed: {exc}")
@@ -812,6 +820,8 @@ class Plugin:
                 last_error = exc
                 if attempt == 3 and start_process:
                     self._ensure_external_overlay_process()
+                # The overlay process creates its socket after GTK starts, so a
+                # short retry window keeps toggle input from racing startup.
                 time.sleep(0.08)
         tail = self._external_overlay_log_tail()
         detail = f"external overlay socket unavailable: {last_error}"
@@ -837,6 +847,8 @@ class Plugin:
                     "deduped": True,
                 }
             if not is_direct_input and elapsed_since_direct < FRONTEND_AFTER_DIRECT_DEDUP_SECONDS:
+                # The same L5 press can arrive through hidraw and then through the
+                # Decky UI bridge; keep the first toggle and ignore the echo.
                 self._append_bridge_log(
                     "external overlay duplicate frontend toggle ignored "
                     f"visible={self._external_overlay_visible} source={source}"
@@ -1047,6 +1059,8 @@ class Plugin:
             "message": self._external_overlay_message,
         }
         if self._external_overlay_visible:
+            # Grab before showing state so the game does not also receive the
+            # button press that opens and navigates the overlay.
             self._sync_external_overlay_input_grab()
         self._send_external_overlay_command(command)
         if not self._external_overlay_visible:
@@ -1105,6 +1119,8 @@ class Plugin:
                             previous = previous_buttons.get(device_path)
                             previous_buttons[device_path] = buttons
                             if previous is None:
+                                # The first report is a baseline; only edge
+                                # transitions after that should trigger actions.
                                 continue
                             pressed = buttons & ~previous
                             if pressed & STEAM_DECK_LBUTTON_L5:
@@ -1265,6 +1281,8 @@ class Plugin:
                                 is_candidate = code in L5_HOTKEY_CODES or (
                                     BTN_TRIGGER_HAPPY1 <= code <= BTN_TRIGGER_HAPPY40
                                 )
+                                # Alternate controller stacks may expose back buttons
+                                # as trigger-happy keys instead of BTN_GRIPL2.
                                 if is_candidate:
                                     self._append_bridge_log(
                                         "L5 OS hotkey candidate press "
@@ -1492,6 +1510,7 @@ def response_summary_for_log(response: dict[str, Any]) -> dict[str, Any]:
 
 def parse_steam_deck_hid_report(data: bytes) -> dict[str, int] | None:
     for offset in (0, 1):
+        # Some hidraw reads include a leading report id byte and some do not.
         if len(data) < offset + 16:
             continue
         version, report_type, report_length = struct.unpack_from("<HBB", data, offset)
@@ -1534,6 +1553,8 @@ def dominant_steam_deck_stick_direction(report: dict[str, int]) -> str | None:
     if left_magnitude < HIDRAW_STICK_NAVIGATION_THRESHOLD and right_magnitude < HIDRAW_STICK_NAVIGATION_THRESHOLD:
         return None
 
+    # Use whichever stick is pushed farther so accidental drift on the other
+    # stick does not steal overlay navigation.
     if right_magnitude > left_magnitude:
         x = right_x
         y = right_y

@@ -32,6 +32,8 @@ export async function repairAudioAndWait(
   let status = await repairAudio();
   onProgress?.(status);
   const deadline = Date.now() + timeoutMs;
+  // Audio repair runs in the backend worker; keep polling until it publishes
+  // a terminal status instead of treating the first "repairing" reply as done.
   while (audioTaskInProgress(status) && Date.now() < deadline) {
     await delay(500);
     status = await getStatus();
@@ -52,6 +54,8 @@ function audioTaskInProgress(status: DeckSoundpadStatus): boolean {
     return true;
   }
   const message = status.audio?.last_error ?? "";
+  // Older backend responses used progress messages before state values were
+  // added, so the UI still recognizes both shapes while repair is running.
   return (
     message === "Audio status pending" ||
     message === "Audio initialization already running" ||

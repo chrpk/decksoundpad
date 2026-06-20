@@ -88,6 +88,8 @@ class SoundLibrary:
                 continue
             if path.is_symlink() and not self.settings.allow_symlinks_outside_libraries:
                 resolved = path.resolve()
+                # A library symlink can point outside the chosen folder; skip it
+                # unless the user has explicitly opted into that wider access.
                 if not is_relative_to(resolved, root_resolved):
                     continue
             try:
@@ -108,6 +110,8 @@ class SoundLibrary:
         relative = path.relative_to(root)
         category = relative.parts[0] if len(relative.parts) > 1 else "uncategorized"
         display_name = path.stem.replace("_", " ").replace("-", " ").strip() or path.name
+        # Include mtime and size so a replaced file gets a fresh id even when it
+        # keeps the same path and display name.
         hash_input = f"{resolved}\0{stat.st_mtime_ns}\0{stat.st_size}".encode("utf-8")
         sound_id = f"sha1:{hashlib.sha1(hash_input).hexdigest()}"
         return SoundItem(

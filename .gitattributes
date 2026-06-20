@@ -33,5 +33,6 @@ __pycache__ export-ignore
 *.pid export-ignore
 .env export-ignore
 .DS_Store export-ignore
+CLAUDE.md export-ignore
 *.log export-ignore
 *.log.* export-ignore

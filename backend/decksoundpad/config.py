@@ -122,6 +122,8 @@ def load_config(paths: AppPaths) -> Settings:
     data = default_settings(paths).to_dict()
     user_data = _load_json_file(paths.config_file)
     data.update(user_data)
+    # Early builds used "single" as the implicit default; migrate only those
+    # untouched configs so users who chose single-sound playback keep it.
     migrated = _should_migrate_legacy_single_mode(user_data)
     if migrated:
         data["overlap_mode"] = "overlap"
