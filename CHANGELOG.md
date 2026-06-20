@@ -10,6 +10,14 @@ This project uses semantic versioning once public releases begin.
 
 - Deckbrew submission checklist and local validation gate.
 
+## 0.1.29 - 2026-06-20
+
+### Changed
+
+- Bumped DeckSoundpad package and backend versions for a tagged GitHub release.
+- Updated third-party notices for the current `@types/react` development
+  dependency version.
+
 ## 0.1.28 - 2026-06-20
 
 ### Added

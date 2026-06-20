@@ -1,6 +1,6 @@
 {
   "name": "decksoundpad",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Decky Loader soundboard that mixes sounds with the real microphone into a virtual mic.",
   "type": "module",
   "private": true,
