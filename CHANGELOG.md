@@ -6,9 +6,17 @@ This project uses semantic versioning once public releases begin.
 
 ## Unreleased
 
+## 0.1.30 - 2026-07-09
+
 ### Added
 
 - Deckbrew submission checklist and local validation gate.
+- Public repository, issue tracker, and project homepage package metadata.
+
+### Changed
+
+- Updated the open-source readiness tracker for the final repository URL and
+  remaining publication evidence.
 
 ## 0.1.29 - 2026-06-20
 
