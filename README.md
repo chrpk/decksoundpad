@@ -12,7 +12,8 @@ announced or submitted to a plugin index.
 
 ## Features
 
-- Decky panel controls for library refresh, playback, audio repair, and settings.
+- Decky panel controls for library refresh, audio repair, and microphone settings.
+- In-game overlay controls for sound selection and playback.
 - PipeWire/PulseAudio route that exposes soundboard output as `DeckSoundpad mic`.
 - Optional real microphone passthrough into the same virtual input.
 - Local sound library scanning from `~/Music/DeckSoundpad`.

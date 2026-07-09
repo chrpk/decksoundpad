@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSettings, getStatus, refreshLibrary, startBackend } from "../api/decky";
 import { DeckSoundpadStatus, Settings } from "../types";
+import { errorMessage } from "../utils/errors";
 import { delay } from "../utils/timing";
 
 export function useDeckSoundpadData() {
@@ -13,7 +14,8 @@ export function useDeckSoundpadData() {
     try {
       setStatus(await getStatus());
     } catch {
-      return;
+      // Polling is best effort. User-triggered operations surface their own
+      // errors, so a transient status failure should not replace that message.
     }
   }, []);
 
@@ -42,8 +44,7 @@ export function useDeckSoundpadData() {
       const nextStatus = await getStatus();
       setStatus(nextStatus);
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Library refresh failed";
-      setError(message);
+      setError(errorMessage(caught, "Library refresh failed"));
     } finally {
       setLoading(false);
     }

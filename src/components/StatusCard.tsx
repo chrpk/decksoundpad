@@ -3,6 +3,8 @@ import { useState } from "react";
 import { FaTools } from "react-icons/fa";
 import { repairAudioAndWait, startBackend } from "../api/decky";
 import { DeckSoundpadStatus } from "../types";
+import { errorMessage } from "../utils/errors";
+import { isBackendRunning } from "../utils/status";
 import { delay } from "../utils/timing";
 
 interface StatusCardProps {
@@ -106,8 +108,7 @@ export function RepairAudioRoutingPanel({ onStatus, onError }: RepairAudioRoutin
               const nextStatus = await repairAudioAndWait(onStatus);
               onStatus(nextStatus);
             } catch (caught) {
-              const message = caught instanceof Error ? caught.message : "Repair failed";
-              onError(message);
+              onError(errorMessage(caught, "Repair failed"));
             } finally {
               setBusy(false);
             }
@@ -127,10 +128,6 @@ const statusStackStyle = {
   gap: "5px",
   minWidth: 0,
 } as const;
-
-function isBackendRunning(status: DeckSoundpadStatus | null): boolean {
-  return Boolean(status?.backend_running);
-}
 
 const statusHeaderStyle = {
   alignItems: "center",

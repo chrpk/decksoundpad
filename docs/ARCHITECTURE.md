@@ -38,10 +38,9 @@ bridge tests, and that document together.
 ## Frontend Modules
 
 - `src/components/StatusCard.tsx`: audio/backend readiness and repair action UI.
-- `src/components/ControlsPanel.tsx`: playback and library refresh controls.
-- `src/components/SoundGrid.tsx`: sound library display.
-- `src/components/SettingsPanel.tsx`: user settings such as microphone
-  passthrough and library behavior.
+- `src/components/ControlsPanel.tsx`: in-game and Decky control reference.
+- `src/components/SoundGrid.tsx`: sound library summary and refresh action.
+- `src/components/SettingsPanel.tsx`: real-microphone passthrough setting.
 - `src/buildInfo.ts`: package version and build timestamp shown in the Decky
   panel for diagnostics and hardware validation.
 
@@ -87,7 +86,7 @@ public logs free of unnecessary sensitive data.
 
 ### Playback And Audio Routing
 
-1. The user plays a sound from the Decky panel or external overlay.
+1. The user plays a sound from the external overlay.
 2. `app.py` ensures the audio route exists before playback when required.
 3. `audio_router.py` manages the `DeckSoundpad mic` virtual route through local
    PipeWire/PulseAudio tooling.

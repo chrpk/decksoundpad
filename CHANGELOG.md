@@ -6,6 +6,15 @@ This project uses semantic versioning once public releases begin.
 
 ## Unreleased
 
+### Changed
+
+- Consolidated shared frontend status and error helpers and simplified repeated
+  external-overlay ownership and navigation logic.
+- Moved pnpm peer-dependency settings to `pnpm-workspace.yaml`, where current
+  pnpm releases read project settings.
+- Corrected frontend capability descriptions and clarified why two TypeScript
+  versions appear in the third-party development dependency notice.
+
 ## 0.1.30 - 2026-07-09
 
 ### Added

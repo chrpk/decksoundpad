@@ -1,6 +1,6 @@
 # Deckbrew Submission Checklist
 
-Source of truth rechecked on 2026-06-20:
+Source of truth rechecked on 2026-07-09:
 https://wiki.deckbrew.xyz/en/plugin-dev/submitting-plugins
 
 This checklist records DeckSoundpad-specific answers for a Decky Plugin

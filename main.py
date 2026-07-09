@@ -1,4 +1,10 @@
+"""Decky bridge and external-overlay coordinator for DeckSoundpad."""
+
 from __future__ import annotations
+
+# The backend package is added to sys.path before its imports below. Keep that
+# runtime setup close to the imports and document the intentional E402 exception.
+# ruff: noqa: E402
 
 import asyncio
 try:
@@ -133,6 +139,8 @@ OVERLAY_INPUT_GRAB_NAME_EXCLUDES = (
 
 
 class Plugin:
+    """Expose Decky callables and coordinate backend and overlay lifecycles."""
+
     async def _main(self) -> None:
         self.paths = resolve_paths(
             env=os.environ,
@@ -376,6 +384,14 @@ class Plugin:
             return None
         return stat_result.st_uid, stat_result.st_gid, passwd.pw_name, self.paths.user_home
 
+    def _external_overlay_owner(self) -> tuple[int, int] | None:
+        """Return the Steam user's ownership pair when the bridge can apply it."""
+
+        identity = self._external_overlay_target_identity()
+        if identity is None or not hasattr(os, "geteuid") or os.geteuid() != 0:
+            return None
+        return identity[0], identity[1]
+
     def _external_overlay_runtime_dir(self) -> Path:
         identity = self._external_overlay_target_identity()
         if identity is None:
@@ -417,19 +433,10 @@ class Plugin:
         return env
 
     def _prepare_external_overlay_runtime_dir(self, path: Path) -> None:
-        identity = self._external_overlay_target_identity()
-        owner = None
-        if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
-            uid, gid, _username, _home = identity
-            owner = (uid, gid)
-        ensure_directory(path, mode=0o700, owner=owner)
+        ensure_directory(path, mode=0o700, owner=self._external_overlay_owner())
 
     def _prepare_external_overlay_log_file(self, path: Path) -> None:
-        identity = self._external_overlay_target_identity()
-        owner = None
-        if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
-            uid, gid, _username, _home = identity
-            owner = (uid, gid)
+        owner = self._external_overlay_owner()
         ensure_directory(path.parent, mode=0o750, owner=owner)
         with open_regular_file(
             path,
@@ -515,13 +522,8 @@ class Plugin:
                 pass
 
     def _prepare_external_overlay_socket_file(self, path: Path, *, mode: int) -> None:
-        identity = self._external_overlay_target_identity()
-        owner = None
-        if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
-            uid, gid, _username, _home = identity
-            owner = (uid, gid)
         try:
-            set_socket_metadata(path, owner=owner, mode=mode)
+            set_socket_metadata(path, owner=self._external_overlay_owner(), mode=mode)
         except OSError as exc:
             self._append_bridge_log(f"external overlay socket metadata failed: {exc}")
 
@@ -658,10 +660,7 @@ class Plugin:
                 "--log",
                 str(log_file),
             ]
-            identity = self._external_overlay_target_identity()
-            owner = None
-            if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
-                owner = (identity[0], identity[1])
+            owner = self._external_overlay_owner()
             with open_regular_file(
                 log_file,
                 "a",
@@ -874,13 +873,9 @@ class Plugin:
 
             if action == "hide":
                 self._external_overlay_visible = False
-            elif action == "next":
+            elif action in {"next", "right"}:
                 self._move_external_overlay_selection(1)
-            elif action == "prev":
-                self._move_external_overlay_selection(-1)
-            elif action == "right":
-                self._move_external_overlay_selection(1)
-            elif action == "left":
+            elif action in {"prev", "left"}:
                 self._move_external_overlay_selection(-1)
             elif action == "down":
                 self._move_external_overlay_selection_vertical(1)

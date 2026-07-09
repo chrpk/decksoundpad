@@ -5,7 +5,7 @@ public open-source project instead of a local prototype.
 
 ## External Baseline
 
-Compared references, rechecked on 2026-06-20:
+Compared references, rechecked on 2026-07-09:
 
 - [SteamDeckHomebrew decky-plugin-template](https://github.com/SteamDeckHomebrew/decky-plugin-template):
   establishes the expected Decky plugin shape, frontend build, `plugin.json`,
@@ -397,7 +397,7 @@ Added during open-source preparation:
   - Evidence: backend library tests for default deny and explicit allow.
 - [x] Run a dependency/license review before first release.
   - Evidence: `docs/THIRD_PARTY_NOTICES.md`, generated from
-    `corepack pnpm licenses list` and source import review on 2026-06-20.
+    `corepack pnpm licenses list` and source import review on 2026-07-09.
   - Evidence: `corepack pnpm run validate:licenses` checks that every
     production package reported by `corepack pnpm licenses list --prod --json`,
     every package directly imported from `src/`, and every direct development

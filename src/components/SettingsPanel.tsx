@@ -2,6 +2,8 @@ import { PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { useCallback, useState } from "react";
 import { getStatus, updateSettings } from "../api/decky";
 import { DeckSoundpadStatus } from "../types";
+import { errorMessage } from "../utils/errors";
+import { isBackendRunning } from "../utils/status";
 
 interface SettingsPanelProps {
   status: DeckSoundpadStatus | null;
@@ -24,7 +26,7 @@ export function SettingsPanel({ status, onStatus, onError }: SettingsPanelProps)
       await updateSettings({ mic_passthrough_enabled: nextEnabled });
       onStatus(await getStatus());
     } catch (caught) {
-      onError(caught instanceof Error ? caught.message : "Failed to update mic input toggle");
+      onError(errorMessage(caught, "Failed to update mic input toggle"));
     } finally {
       setUpdating(false);
     }
@@ -45,8 +47,4 @@ export function SettingsPanel({ status, onStatus, onError }: SettingsPanelProps)
       </PanelSectionRow>
     </PanelSection>
   );
-}
-
-function isBackendRunning(status: DeckSoundpadStatus | null): boolean {
-  return Boolean(status?.backend_running);
 }

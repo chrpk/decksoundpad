@@ -2,7 +2,7 @@
 
 This document summarizes the JavaScript dependency license review for the
 current public-release baseline. It was generated from local package metadata
-with `corepack pnpm licenses list` and source import review on 2026-06-20.
+with `corepack pnpm licenses list` and source import review on 2026-07-09.
 
 DeckSoundpad's own source code is licensed under MIT. The dependency summary
 below is provided for release review. License text for production dependencies
@@ -45,6 +45,11 @@ The `react-icons` package license text bundled in
 CC BY 4.0. Keep this attribution section current if icon imports change.
 
 ## Direct Development Dependencies
+
+The table includes every resolved version associated with a direct development
+dependency name. A build plugin can therefore contribute an additional version
+of a package that is also declared directly, as `@decky/rollup` does for
+TypeScript 5.9.3.
 
 | Package | Version | License |
 | --- | ---: | --- |

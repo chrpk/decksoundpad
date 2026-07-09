@@ -50,6 +50,7 @@ required_files=(
   "docs/THIRD_PARTY_LICENSES.md"
   "docs/THIRD_PARTY_NOTICES.md"
   "docs/TROUBLESHOOTING.md"
+  "pnpm-workspace.yaml"
   "requirements-security.txt"
   "rollup.config.js"
   "scripts/validate_python_security.sh"
@@ -889,6 +890,18 @@ if (!pkg.engines || pkg.engines.pnpm !== ">=9.15.9 <10.0.0") {
 }
 if (pkg.packageManager !== "pnpm@9.15.9") {
   fail("package.json packageManager must pin pnpm@9.15.9");
+}
+const pnpmWorkspace = read("pnpm-workspace.yaml");
+for (const requiredText of [
+  "packages:",
+  "peerDependencyRules:",
+  "ignoreMissing:",
+  "- react",
+  "- react-dom",
+]) {
+  if (!pnpmWorkspace.includes(requiredText)) {
+    fail(`pnpm-workspace.yaml must preserve Decky peer dependency settings: ${requiredText}`);
+  }
 }
 if (!pkg.scripts || typeof pkg.scripts !== "object") {
   fail("package.json scripts are required");
