@@ -166,10 +166,13 @@ Added during open-source preparation:
 
 ## Release Blockers
 
-- [ ] Choose the final public repository owner/name.
-  - Evidence needed: `git remote -v` points to the public repository.
-  - Update after decision: `package.json` repository, bugs, homepage fields;
-    README badges; SECURITY reporting text; issue template contact links.
+- [ ] Publish the final repository at `https://github.com/chrpk/decksoundpad`.
+  - Local evidence: `origin` and the existing `decksoundpad` remote point to
+    the final repository URL; `package.json` includes repository, bugs, and
+    homepage fields for that URL.
+  - External evidence needed: the repository URL is publicly accessible.
+  - Update after publication: README badges; SECURITY reporting text; issue
+    template contact links.
   - Current support: `docs/PUBLICATION_RUNBOOK.md` lists the exact repository
     metadata and files to update after the remote exists.
 - [ ] Enable private vulnerability reporting or publish a private security
@@ -274,9 +277,10 @@ Added during open-source preparation:
 ## High Priority Todo
 
 - [x] Replace the empty package repository URL with truthful metadata handling.
-  - Current action: removed the invalid empty `repository.url`.
-  - Remaining action: add real repository/bugs/homepage fields once the public
-    URL exists.
+  - Evidence: removed the invalid empty `repository.url`.
+  - Evidence: `package.json` now points repository, bugs, and homepage fields
+    to `https://github.com/chrpk/decksoundpad`.
+  - Remaining action: make the final repository publicly accessible.
 - [x] Prevent accidental npm publication.
   - Evidence: `package.json` has `"private": true`.
   - Evidence: `corepack pnpm run validate:release` fails if the private flag is
