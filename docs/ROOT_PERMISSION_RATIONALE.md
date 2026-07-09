@@ -21,8 +21,13 @@ The current implementation uses privileged access for these local-only features:
   - The backend prepares runtime directories, logs, and Unix sockets while
     running as Decky.
   - When root is available, it can chown those resources to the Steam Deck user
-    and demote the GTK overlay process with `setgid`, `initgroups`, and
-    `setuid`.
+    and launches the GTK overlay with Python's UID, GID, and supplementary-group
+    subprocess controls.
+
+Privileged file handling is intentionally narrow: configuration, state, cache,
+and log files are opened without following symlinks, directory and socket
+metadata changes are no-follow operations, and audio-routing/playback child
+processes drop to the Steam user's UID, GID, and supplementary groups.
 
 ## Non-Privileged Behavior
 

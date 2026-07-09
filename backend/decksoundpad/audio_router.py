@@ -9,6 +9,7 @@ from .config import Settings
 from .models import AudioModule, AudioProbe, AudioSource, AudioStatus
 from .paths import AppPaths, ensure_app_dirs
 from .process import RunResult, command_exists, decky_runtime_env, run_capture
+from .safe_files import open_regular_file
 
 
 SINK_NAME = "decksoundpad_sink"
@@ -30,8 +31,16 @@ class CommandRunner(Protocol):
 
 
 class SubprocessCommandRunner:
+    def __init__(self, paths: AppPaths):
+        self.paths = paths
+
     def run(self, args: Sequence[str], *, timeout: float = 5.0) -> RunResult:
-        return run_capture(args, timeout=timeout, env=decky_runtime_env())
+        return run_capture(
+            args,
+            timeout=timeout,
+            env=decky_runtime_env(),
+            user_home=self.paths.user_home,
+        )
 
 
 @dataclass(frozen=True)
@@ -204,7 +213,7 @@ class AudioRouter:
     ):
         self.paths = paths
         self.settings = settings
-        self.runner = runner or SubprocessCommandRunner()
+        self.runner = runner or SubprocessCommandRunner(paths)
 
     def probe(self) -> AudioProbe:
         pactl_available = command_exists("pactl")
@@ -577,7 +586,11 @@ class AudioRouter:
         if not self.paths.module_state_file.exists():
             return ModuleState()
         try:
-            with self.paths.module_state_file.open("r", encoding="utf-8") as handle:
+            with open_regular_file(
+                self.paths.module_state_file,
+                "r",
+                encoding="utf-8",
+            ) as handle:
                 value = json.load(handle)
             if not isinstance(value, dict):
                 return ModuleState()
@@ -589,7 +602,13 @@ class AudioRouter:
 
     def _save_module_state(self, state: ModuleState) -> None:
         ensure_app_dirs(self.paths)
-        with self.paths.module_state_file.open("w", encoding="utf-8") as handle:
+        with open_regular_file(
+            self.paths.module_state_file,
+            "w",
+            encoding="utf-8",
+            permissions=0o600,
+            enforce_permissions=True,
+        ) as handle:
             json.dump(asdict(state), handle, indent=2, sort_keys=True)
             handle.write("\n")
 

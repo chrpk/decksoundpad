@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .safe_files import ensure_directory
+
 
 APP_ID = "decksoundpad"
 
@@ -100,11 +102,23 @@ def ensure_app_dirs(paths: AppPaths) -> None:
         paths.runtime_dir,
         paths.log_dir,
     ):
-        directory.mkdir(parents=True, exist_ok=True)
+        ensure_directory(directory)
     try:
-        paths.public_log_dir.mkdir(parents=True, exist_ok=True)
+        owner = user_owner(paths)
+        ensure_directory(paths.public_log_dir.parent, mode=0o750, owner=owner)
+        ensure_directory(paths.public_log_dir, mode=0o750, owner=owner)
     except OSError:
         pass
+
+
+def user_owner(paths: AppPaths) -> tuple[int, int] | None:
+    try:
+        home_stat = paths.user_home.stat()
+    except OSError:
+        if hasattr(os, "geteuid") and os.geteuid() != 0:
+            return os.getuid(), os.getgid()
+        return None
+    return home_stat.st_uid, home_stat.st_gid
 
 
 def expand_user_path(value: str, user_home: Path) -> Path:

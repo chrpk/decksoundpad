@@ -29,6 +29,7 @@ body:
         - label: `corepack pnpm run validate:deckbrew`
         - label: `corepack pnpm run validate:source-archive`
         - label: `corepack pnpm run validate:licenses`
+        - label: `corepack pnpm run scan:python-security`
         - label: `corepack pnpm run licenses:generate` was run if dependency versions changed
         - label: `corepack pnpm run scan:secrets`
         - label: `corepack pnpm run package`

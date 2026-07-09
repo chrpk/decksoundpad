@@ -9,6 +9,7 @@
 - [ ] `corepack pnpm run validate:deckbrew`
 - [ ] `corepack pnpm run validate:source-archive`
 - [ ] `corepack pnpm run validate:licenses`
+- [ ] `corepack pnpm run scan:python-security`
 - [ ] `corepack pnpm run scan:secrets`
 - [ ] `corepack pnpm run validate:release`
 

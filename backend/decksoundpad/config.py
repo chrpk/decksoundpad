@@ -7,6 +7,7 @@ from typing import Any
 
 from .models import OverlapMode
 from .paths import AppPaths, ensure_app_dirs
+from .safe_files import open_regular_file
 
 
 VALID_OVERLAP_MODES = {"overlap", "single", "per_sound"}
@@ -38,7 +39,7 @@ class Settings:
 def _load_json_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    with path.open("r", encoding="utf-8") as handle:
+    with open_regular_file(path, "r", encoding="utf-8") as handle:
         value = json.load(handle)
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain a JSON object")
@@ -142,7 +143,13 @@ def _should_migrate_legacy_single_mode(user_data: dict[str, Any]) -> bool:
 
 def save_config(paths: AppPaths, settings: Settings) -> None:
     ensure_app_dirs(paths)
-    with paths.config_file.open("w", encoding="utf-8") as handle:
+    with open_regular_file(
+        paths.config_file,
+        "w",
+        encoding="utf-8",
+        permissions=0o600,
+        enforce_permissions=True,
+    ) as handle:
         json.dump(settings.to_dict(), handle, indent=2, sort_keys=True)
         handle.write("\n")
 

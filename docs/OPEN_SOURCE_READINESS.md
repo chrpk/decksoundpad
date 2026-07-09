@@ -166,10 +166,13 @@ Added during open-source preparation:
 
 ## Release Blockers
 
-- [ ] Choose the final public repository owner/name.
-  - Evidence needed: `git remote -v` points to the public repository.
-  - Update after decision: `package.json` repository, bugs, homepage fields;
-    README badges; SECURITY reporting text; issue template contact links.
+- [ ] Publish the final repository at `https://github.com/chrpk/decksoundpad`.
+  - Local evidence: `origin` and the existing `decksoundpad` remote point to
+    the final repository URL; `package.json` includes repository, bugs, and
+    homepage fields for that URL.
+  - External evidence needed: the repository URL is publicly accessible.
+  - Update after publication: README badges; SECURITY reporting text; issue
+    template contact links.
   - Current support: `docs/PUBLICATION_RUNBOOK.md` lists the exact repository
     metadata and files to update after the remote exists.
 - [ ] Enable private vulnerability reporting or publish a private security
@@ -274,9 +277,10 @@ Added during open-source preparation:
 ## High Priority Todo
 
 - [x] Replace the empty package repository URL with truthful metadata handling.
-  - Current action: removed the invalid empty `repository.url`.
-  - Remaining action: add real repository/bugs/homepage fields once the public
-    URL exists.
+  - Evidence: removed the invalid empty `repository.url`.
+  - Evidence: `package.json` now points repository, bugs, and homepage fields
+    to `https://github.com/chrpk/decksoundpad`.
+  - Remaining action: make the final repository publicly accessible.
 - [x] Prevent accidental npm publication.
   - Evidence: `package.json` has `"private": true`.
   - Evidence: `corepack pnpm run validate:release` fails if the private flag is
@@ -359,6 +363,25 @@ Added during open-source preparation:
   - Evidence: `docs/THREAT_MODEL.md` documents trust boundaries for local file
     scanning, subprocess playback, audio routing, Unix sockets, input devices,
     support logs, and release artifacts.
+- [x] Harden privileged runtime file and subprocess boundaries.
+  - Evidence: configuration, state, cache, and log files use no-follow regular
+    file opens; runtime directories and Unix socket metadata use no-follow
+    checks before ownership or permission changes.
+  - Evidence: custom library roots must be real Steam-user-owned directories;
+    non-user-owned files and symlinked roots are rejected before privileged
+    scanning or playback.
+  - Evidence: audio-routing, decoding, playback, and overlay subprocesses drop
+    from Decky's root context to the Steam user's UID, GID, and supplementary
+    groups, and fail closed if that identity cannot be resolved.
+  - Evidence: `backend/tests/test_safe_files.py` verifies that symlink targets
+    are not overwritten, privileged subprocess options select the Steam user,
+    and overlay sockets receive owner-only permissions.
+  - Evidence: Bandit 1.9.4 reported zero medium-severity findings after the
+    security hardening review; the SHA-1 sound identifier is explicitly marked
+    non-security-sensitive so it is not confused with cryptographic use.
+  - Evidence: `requirements-security.txt` pins Bandit, Dependabot covers the
+    pip ecosystem, and both CI and tagged release workflows run
+    `corepack pnpm run scan:python-security` before packaging.
 - [x] Add contributor architecture and code map documentation.
   - Evidence: `docs/ARCHITECTURE.md` documents runtime shape, entry points,
     frontend modules, backend modules, status/settings, library scanning,
@@ -397,11 +420,12 @@ Added during open-source preparation:
     packaged by the standalone package command.
   - Expected dependencies: Decky packages, React, React icons, Rollup, and
     TypeScript.
-- [ ] Run a secret scan before making the repository public.
-  - Evidence needed: clean `git-secrets`, `gitleaks`, or GitHub secret scanning
-    result against full history.
-  - Current support: Gitleaks workflow and config have been added, but no local
-    scanner binary is installed in this environment, so this remains unchecked.
+- [x] Run a secret scan before making the repository public.
+  - Evidence: Gitleaks 8.30.1 scanned all 15 commits (940.97 KB) and reported
+    `no leaks found` on 2026-07-09. A directory scan of the current release
+    worktree (2.48 MB) also reported `no leaks found`.
+  - Command: `gitleaks git --config .gitleaks.toml --redact --verbose .` plus
+    the matching `gitleaks dir` scan.
   - Current support: `corepack pnpm run scan:secrets` performs a local
     high-confidence scan of tracked files, untracked non-ignored publication
     files, lockfile URLs, and git-history patches for common private keys,
@@ -569,7 +593,13 @@ Added during open-source preparation:
 - Subprocess playback:
   - Risk: shell quoting mistakes can become command injection bugs.
   - Mitigation: most commands use argument lists; shell fallback passes paths
-    as positional parameters and should remain covered by command tests.
+    as positional parameters, and root-launched audio subprocesses drop to the
+    Steam user before executing host tools.
+- Privileged local files:
+  - Risk: user-controlled symlinks could redirect root-owned state or log
+    operations to sensitive host files.
+  - Mitigation: no-follow directory/file/socket operations and regression tests
+    fail closed on symlink replacement.
 - Public logs:
   - Risk: logs can include local usernames, paths, and audio device names.
   - Mitigation: document privacy expectations before asking users for logs.

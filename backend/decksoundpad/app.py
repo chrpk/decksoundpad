@@ -43,6 +43,7 @@ class DeckSoundpadApp:
             self.player = PlaybackManager(
                 self.settings,
                 logger=self.logger.getChild("playback"),
+                paths=paths,
             )
         self.logger.info("DeckSoundpad backend initialized version=%s", __version__)
         self._status_cache: dict[str, Any] | None = None

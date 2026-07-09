@@ -121,6 +121,9 @@ On backend failure the bridge returns:
 
 Sound paths are local file paths. Public issues and logs must redact private
 home paths and private sound names before sharing.
+Library roots must be real directories owned by the Steam user. The backend
+rejects symlink roots and non-user-owned sound files while running with Decky's
+root flag.
 
 ## Settings Response
 

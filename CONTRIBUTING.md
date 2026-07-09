@@ -108,6 +108,14 @@ Keep the Dependency Review workflow enabled. It is configured to fail if a pull
 request introduces moderate-or-higher vulnerable dependencies in runtime,
 development, or unknown scopes.
 
+Install the pinned Python security tooling and run Bandit before release or
+after changes to privileged Python paths:
+
+```bash
+python3 -m pip install -r requirements-security.txt
+corepack pnpm run scan:python-security
+```
+
 Before first publication, run a full-history scan with one of:
 
 ```bash
@@ -142,6 +150,7 @@ Before tagging a public release:
 - [ ] Run `corepack pnpm run validate:deckbrew`.
 - [ ] Run `corepack pnpm run validate:source-archive`.
 - [ ] Run `corepack pnpm run validate:licenses`.
+- [ ] Run `corepack pnpm run scan:python-security`.
 - [ ] Run `corepack pnpm run scan:secrets`.
 - [ ] Run `corepack pnpm run package`.
 - [ ] Run `corepack pnpm run validate:release`.

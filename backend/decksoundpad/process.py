@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pwd
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -104,6 +105,7 @@ def run_capture(
     *,
     timeout: float = 5.0,
     env: Mapping[str, str] | None = None,
+    user_home: Path | None = None,
 ) -> RunResult:
     try:
         completed = subprocess.run(
@@ -113,6 +115,7 @@ def run_capture(
             capture_output=True,
             timeout=timeout,
             env=dict(env) if env is not None else None,
+            **subprocess_user_kwargs(user_home),
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout or ""
@@ -125,3 +128,23 @@ def run_capture(
         stderr = f"{stderr}\n{timeout_msg}".strip()
         return RunResult(124, stdout, stderr)
     return RunResult(completed.returncode, completed.stdout, completed.stderr)
+
+
+def subprocess_user_kwargs(user_home: Path | None) -> dict[str, object]:
+    """Return Popen options that drop a root child to the Steam user."""
+
+    if user_home is None or not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return {}
+    try:
+        home_stat = user_home.stat()
+        if home_stat.st_uid == 0:
+            raise RuntimeError("refusing to launch an audio subprocess as root")
+        username = pwd.getpwuid(home_stat.st_uid).pw_name
+        groups = os.getgrouplist(username, home_stat.st_gid)
+    except (KeyError, OSError) as exc:
+        raise RuntimeError("could not resolve the Steam user for subprocess launch") from exc
+    return {
+        "user": home_stat.st_uid,
+        "group": home_stat.st_gid,
+        "extra_groups": groups,
+    }

@@ -41,6 +41,8 @@ files outside configured library roots.
 Mitigations:
 
 - symlinks escaping configured library roots are ignored by default;
+- configured library roots must be real directories owned by the Steam user,
+  and non-user-owned sound files are rejected;
 - tests cover default-deny and explicit opt-in symlink behavior;
 - privacy docs warn that filenames and paths can appear in logs.
 
@@ -53,6 +55,8 @@ Mitigations:
 
 - playback and routing code should prefer argument-list subprocess calls;
 - shell fallback paths must keep user-controlled values out of the script body;
+- when Decky launches the plugin as root, audio subprocesses drop to the Steam
+  user's UID, GID, and supplementary groups before executing host tools;
 - release review requires careful inspection of subprocess construction.
 
 ### Over-Broad Privileged Access
@@ -74,8 +78,23 @@ control than intended.
 Mitigations:
 
 - sockets are Unix-domain local resources, not LAN listeners;
+- overlay sockets use owner-only filesystem permissions;
 - overlay actions are constrained to known UI commands;
 - the project must not add a LAN HTTP API without a separate design review.
+
+### Privileged File Writes
+
+Threat: a Steam user could replace a state or log file with a symlink and cause
+the root Decky backend to overwrite, chown, or chmod a privileged target.
+
+Mitigations:
+
+- configuration, state, cache, and log files are opened with `O_NOFOLLOW` and
+  verified as regular files before use;
+- runtime directories are opened with `O_DIRECTORY | O_NOFOLLOW` before any
+  ownership or mode change;
+- Unix socket ownership and modes are changed without following symlinks;
+- regression tests verify that symlink targets remain unchanged.
 
 ### Sensitive Logs
 
@@ -119,6 +138,8 @@ Before public release, confirm:
 
 - no LAN listener or telemetry path was added;
 - root-flag diagnostic results are recorded;
+- privileged file writes still reject symlinks and audio subprocesses still
+  drop to the Steam user;
 - symlink escape tests still pass;
 - subprocess calls use argument lists where practical;
 - support docs still require redaction for logs;
