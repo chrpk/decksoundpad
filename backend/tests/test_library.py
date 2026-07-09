@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from decksoundpad.config import Settings
-from decksoundpad.library import SoundLibrary
+from decksoundpad.library import LibrarySecurityError, SoundLibrary
 from decksoundpad.paths import AppPaths
 
 
@@ -148,6 +148,20 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0].path, str(target.resolve()))
             self.assertEqual(items[0].relative_path, "linked.wav")
+
+    def test_library_rejects_symlink_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target"
+            target.mkdir()
+            linked_root = root / "linked-root"
+            try:
+                linked_root.symlink_to(target, target_is_directory=True)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+
+            with self.assertRaises(LibrarySecurityError):
+                self.library(root, linked_root).scan()
 
     def test_legacy_cache_ignores_removed_sound_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

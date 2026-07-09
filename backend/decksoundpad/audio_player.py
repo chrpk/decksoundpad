@@ -10,7 +10,7 @@ import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import IO, Protocol, Sequence, cast
 
 try:
     import audioop
@@ -25,7 +25,9 @@ from .audio_formats import (
 )
 from .audio_router import SINK_NAME
 from .config import Settings
-from .process import command_exists, decky_runtime_env, run_capture
+from .paths import AppPaths
+from .process import command_exists, decky_runtime_env, run_capture, subprocess_user_kwargs
+from .safe_files import open_regular_file
 
 
 PLAYBACK_STARTUP_GRACE_SECONDS = 0.12
@@ -287,8 +289,13 @@ class QueuedSample:
 class LowLatencyRawMixer:
     name = "low_latency_mixer"
 
-    def __init__(self, logger: logging.Logger | None = None):
+    def __init__(
+        self,
+        logger: logging.Logger | None = None,
+        paths: AppPaths | None = None,
+    ):
         self.logger = logger or logging.getLogger("decksoundpad.low_latency")
+        self.paths = paths
         self._lock = threading.RLock()
         self._samples: dict[tuple[Path, int, int], bytes] = {}
         self._active: list[QueuedSample] = []
@@ -368,10 +375,10 @@ class LowLatencyRawMixer:
             self._samples[key] = data
         return data
 
-    @staticmethod
-    def _cache_key(path: Path) -> tuple[Path, int, int]:
-        stat = path.stat()
-        return path.resolve(), stat.st_mtime_ns, stat.st_size
+    def _cache_key(self, path: Path) -> tuple[Path, int, int]:
+        with self._open_audio_file(path) as handle:
+            file_stat = os.fstat(handle.fileno())
+        return path.absolute(), file_stat.st_mtime_ns, file_stat.st_size
 
     def _decode(self, path: Path) -> bytes:
         if self._has_ffmpeg():
@@ -402,15 +409,15 @@ class LowLatencyRawMixer:
             stderr=subprocess.PIPE,
             env=playback_env(),
             timeout=10,
+            **subprocess_user_kwargs(self.paths.user_home if self.paths else None),
         )
         if result.returncode != 0:
             message = result.stderr.decode("utf-8", errors="replace").strip()
             raise RuntimeError(message or "ffmpeg decode failed")
         return result.stdout
 
-    @staticmethod
-    def _decode_exact_wav(path: Path) -> bytes:
-        with wave.open(str(path), "rb") as handle:
+    def _decode_exact_wav(self, path: Path) -> bytes:
+        with self._open_audio_file(path) as audio_file, wave.open(audio_file, "rb") as handle:
             if (
                 handle.getframerate() != LOW_LATENCY_SAMPLE_RATE
                 or handle.getnchannels() != LOW_LATENCY_CHANNELS
@@ -433,8 +440,7 @@ class LowLatencyRawMixer:
         self._thread = threading.Thread(target=self._run, name="decksoundpad-low-latency-mixer", daemon=True)
         self._thread.start()
 
-    @staticmethod
-    def _spawn_pacat() -> subprocess.Popen[bytes]:
+    def _spawn_pacat(self) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
             [
                 "pacat",
@@ -450,7 +456,32 @@ class LowLatencyRawMixer:
             stderr=subprocess.PIPE,
             start_new_session=True,
             env=playback_env(),
+            **subprocess_user_kwargs(self.paths.user_home if self.paths else None),
         )
+
+    def _open_audio_file(self, path: Path) -> IO[bytes]:
+        handle = cast(IO[bytes], open_regular_file(path, "rb"))
+        if self.paths is None or not hasattr(os, "geteuid") or os.geteuid() != 0:
+            return handle
+
+        file_stat = os.fstat(handle.fileno())
+        try:
+            user_uid = self.paths.user_home.stat().st_uid
+            resolved_path = path.resolve(strict=True)
+            resolved_stat = resolved_path.stat()
+            plugin_root = self.paths.plugin_dir.resolve(strict=True)
+            same_file = (
+                file_stat.st_dev == resolved_stat.st_dev
+                and file_stat.st_ino == resolved_stat.st_ino
+            )
+            in_plugin = same_file and resolved_path.is_relative_to(plugin_root)
+        except OSError:
+            handle.close()
+            raise RuntimeError("could not verify sound file ownership")
+        if file_stat.st_uid != user_uid and not in_plugin:
+            handle.close()
+            raise PermissionError("refusing to read a non-user-owned sound file as root")
+        return handle
 
     def _run(self) -> None:
         while True:
@@ -526,12 +557,17 @@ class PlaybackManager:
         settings: Settings,
         backends: Sequence[PlayerBackend] | None = None,
         logger: logging.Logger | None = None,
+        paths: AppPaths | None = None,
     ):
         self.settings = settings
+        self.paths = paths
         self.backends = list(backends or default_backends())
         self.logger = logger or logging.getLogger("decksoundpad.playback")
         self.playbacks: dict[str, Playback] = {}
-        self.low_latency = LowLatencyRawMixer(self.logger.getChild("low_latency"))
+        self.low_latency = LowLatencyRawMixer(
+            self.logger.getChild("low_latency"),
+            paths=paths,
+        )
         self.logger.info(
             "playback backend order=%s",
             [backend.name for backend in self.backends],
@@ -652,7 +688,9 @@ class PlaybackManager:
                     "playback pipewire snapshot playback_id=%s sound_id=%s snapshot=%s",
                     playback_id,
                     sound_id,
-                    pipewire_stream_snapshot_for_log(),
+                    pipewire_stream_snapshot_for_log(
+                        self.paths.user_home if self.paths else None
+                    ),
                 )
             return playback_id
         self.logger.error("playback failed sound_id=%s errors=%s", sound_id, errors)
@@ -743,6 +781,7 @@ class PlaybackManager:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
                 env=env,
+                **subprocess_user_kwargs(self.paths.user_home if self.paths else None),
             )
         ]
 
@@ -764,6 +803,7 @@ class PlaybackManager:
                 stderr=subprocess.PIPE,
                 start_new_session=True,
                 env=env,
+                **subprocess_user_kwargs(self.paths.user_home if self.paths else None),
             )
             if previous_stdout is not None:
                 # The child now owns the read side of the previous pipe; closing
@@ -858,19 +898,32 @@ def read_process_stderr(process: subprocess.Popen[bytes]) -> str:
     return stderr.decode("utf-8", errors="replace").strip()
 
 
-def pipewire_stream_snapshot_for_log() -> dict[str, object]:
+def pipewire_stream_snapshot_for_log(user_home: Path | None = None) -> dict[str, object]:
     if not command_exists("pactl"):
         return {"pactl_available": False}
     env = decky_runtime_env()
     return {
         "pactl_available": True,
-        "sink_inputs": capture_for_log(["pactl", "list", "sink-inputs", "short"], env=env),
-        "source_outputs": capture_for_log(["pactl", "list", "source-outputs", "short"], env=env),
+        "sink_inputs": capture_for_log(
+            ["pactl", "list", "sink-inputs", "short"],
+            env=env,
+            user_home=user_home,
+        ),
+        "source_outputs": capture_for_log(
+            ["pactl", "list", "source-outputs", "short"],
+            env=env,
+            user_home=user_home,
+        ),
     }
 
 
-def capture_for_log(args: Sequence[str], *, env: dict[str, str]) -> dict[str, object]:
-    result = run_capture(args, timeout=0.5, env=env)
+def capture_for_log(
+    args: Sequence[str],
+    *,
+    env: dict[str, str],
+    user_home: Path | None = None,
+) -> dict[str, object]:
+    result = run_capture(args, timeout=0.5, env=env, user_home=user_home)
     stdout = result.stdout.strip()
     stderr = result.stderr.strip()
     return {

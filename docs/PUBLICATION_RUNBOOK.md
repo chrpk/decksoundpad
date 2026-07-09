@@ -107,6 +107,8 @@ git status --short
 corepack pnpm run validate:repo
 corepack pnpm run validate:source-archive
 corepack pnpm run validate:licenses
+python3 -m pip install -r requirements-security.txt
+corepack pnpm run scan:python-security
 corepack pnpm run validate:release
 ```
 

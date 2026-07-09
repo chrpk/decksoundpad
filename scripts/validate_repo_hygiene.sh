@@ -50,7 +50,9 @@ required_files=(
   "docs/THIRD_PARTY_LICENSES.md"
   "docs/THIRD_PARTY_NOTICES.md"
   "docs/TROUBLESHOOTING.md"
+  "requirements-security.txt"
   "rollup.config.js"
+  "scripts/validate_python_security.sh"
   "scripts/validate_source_archive.sh"
   "scripts/validate_publication_readiness.sh"
   "scripts/validate_deckbrew_submission.sh"
@@ -181,6 +183,7 @@ const requiredValidationCommands = [
   "corepack pnpm run validate:deckbrew",
   "corepack pnpm run validate:source-archive",
   "corepack pnpm run validate:licenses",
+  "corepack pnpm run scan:python-security",
   "corepack pnpm run scan:secrets",
   "corepack pnpm run validate:release",
 ];
@@ -696,6 +699,7 @@ for (const workflow of workflowFiles) {
   const isCodeqlWorkflow = workflow.endsWith("/codeql.yml") || workflow.endsWith("/codeql.yaml");
   const isDependencyReviewWorkflow = workflow.endsWith("/dependency-review.yml") || workflow.endsWith("/dependency-review.yaml");
   const isReleaseWorkflow = workflow.endsWith("/release.yml") || workflow.endsWith("/release.yaml");
+  const isCiWorkflow = workflow.endsWith("/ci.yml") || workflow.endsWith("/ci.yaml");
   if (isCodeqlWorkflow) {
     if (!/^permissions:\n\s+contents:\s+read\n\s+security-events:\s+write$/m.test(text)) {
       fail(`${workflow} must grant only contents: read and security-events: write for CodeQL result upload`);
@@ -747,6 +751,26 @@ for (const workflow of workflowFiles) {
     }
     if (!/^\s+run_install:\s+false\s*$/m.test(text)) {
       fail(`${workflow} must keep pnpm/action-setup from installing dependencies outside validate:release`);
+    }
+  }
+  if (isCiWorkflow || isReleaseWorkflow) {
+    for (const requiredText of [
+      "uses: actions/setup-python@v6",
+      'python-version: "3.12"',
+      "cache: pip",
+      "cache-dependency-path: requirements-security.txt",
+      "python -m pip install --disable-pip-version-check --requirement requirements-security.txt",
+      "corepack pnpm run scan:python-security",
+    ]) {
+      if (!text.includes(requiredText)) {
+        fail(`${workflow} must run the pinned Python security gate: ${requiredText}`);
+      }
+    }
+    if (text.indexOf("python -m pip install --disable-pip-version-check --requirement requirements-security.txt") > text.lastIndexOf("corepack pnpm run scan:python-security")) {
+      fail(`${workflow} must install Python security tooling before running Bandit`);
+    }
+    if (text.includes("corepack pnpm run validate:release") && text.indexOf("corepack pnpm run scan:python-security") > text.indexOf("corepack pnpm run validate:release")) {
+      fail(`${workflow} must run Bandit before release validation and packaging`);
     }
   }
   if (text.includes("actions/upload-artifact")) {
@@ -817,9 +841,34 @@ for (const workflow of workflowFiles) {
 }
 
 const dependabot = read(".github/dependabot.yml");
-for (const ecosystem of ["npm", "github-actions"]) {
+for (const ecosystem of ["npm", "github-actions", "pip"]) {
   if (!dependabot.includes(`package-ecosystem: ${ecosystem}`)) {
     fail(`Dependabot must cover ${ecosystem}`);
+  }
+}
+
+const securityRequirements = read("requirements-security.txt");
+const securityRequirementLines = securityRequirements
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith("#"));
+if (!securityRequirementLines.includes("bandit==1.9.4")) {
+  fail("requirements-security.txt must pin Bandit 1.9.4");
+}
+for (const requirement of securityRequirementLines) {
+  if (!/^[A-Za-z0-9_.-]+==[0-9][A-Za-z0-9_.+-]*$/.test(requirement)) {
+    fail(`requirements-security.txt contains an unpinned requirement: ${requirement}`);
+  }
+}
+
+const pythonSecurityValidation = read("scripts/validate_python_security.sh");
+for (const requiredText of [
+  "requirements-security.txt",
+  "Bandit version mismatch",
+  "-r main.py backend/decksoundpad -x backend/tests -ll",
+]) {
+  if (!pythonSecurityValidation.includes(requiredText)) {
+    fail(`scripts/validate_python_security.sh must enforce the pinned Bandit gate: ${requiredText}`);
   }
 }
 for (const label of ["dependencies", "packaging"]) {
@@ -850,6 +899,7 @@ for (const scriptName of [
   "validate:licenses",
   "validate:release",
   "validate:publication",
+  "scan:python-security",
 ]) {
   if (!pkg.scripts[scriptName]) {
     fail(`package.json missing required validation script: ${scriptName}`);

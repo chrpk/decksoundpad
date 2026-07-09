@@ -42,6 +42,10 @@ code scanning. Review CodeQL alerts before tagging releases or accepting changes
 that affect file handling, subprocess execution, audio routing, privileged input
 handling, or release packaging.
 
+CI and tagged releases also install the version pinned in
+`requirements-security.txt` and run `corepack pnpm run scan:python-security`.
+This Bandit gate rejects medium- and high-severity Python findings.
+
 ## Supply Chain Review
 
 The repository includes a Dependency Review workflow for pull requests. It is

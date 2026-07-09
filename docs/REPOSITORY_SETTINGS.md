@@ -78,6 +78,7 @@ Protect release tags matching `v*`:
 Before publishing each GitHub Release, the release issue should include:
 
 - `corepack pnpm run validate:release` result from a clean checkout.
+- `corepack pnpm run scan:python-security` result from the pinned Bandit version.
 - `corepack pnpm run validate:publication` result after external evidence is
   supplied.
 - `Tagged Release Artifact` workflow URL.

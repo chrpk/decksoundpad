@@ -54,6 +54,7 @@ manifest records `generatedAt`, so rebuilds are intentionally build-specific.
 ## Validation
 
 - Local release validation: `<command and result>`
+- Python security scan: `<Bandit version and result>`
 - Tagged Release Artifact workflow: `<workflow run URL>`
 - Dependency Review workflow: `<workflow run URL or not applicable>`
 - Full-history secret scan: `<tool/workflow and result>`

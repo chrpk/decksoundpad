@@ -182,6 +182,7 @@ class OverlayWindow(Gtk.Window):
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             server.bind(str(self.socket_path))
+            self.socket_path.chmod(0o600)
             server.listen(8)
             server.settimeout(0.5)
             LOGGER.info("overlay socket listening path=%s", self.socket_path)

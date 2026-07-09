@@ -93,6 +93,8 @@ Put files in:
 
 Supported target extensions are WAV, FLAC, OGG, and MP3. Actual playback
 support depends on local availability of `pw-play`, `ffmpeg`, or `mpv`.
+Custom library roots must be real directories owned by the Steam user; the
+privileged backend rejects symlink roots and non-user-owned sound files.
 
 ## Use
 
@@ -164,6 +166,8 @@ corepack pnpm run build
 corepack pnpm run typecheck
 corepack pnpm run test
 corepack pnpm run check
+python3 -m pip install -r requirements-security.txt
+corepack pnpm run scan:python-security
 corepack pnpm run scan:secrets
 corepack pnpm run package
 corepack pnpm run validate:release

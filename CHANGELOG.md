@@ -18,6 +18,16 @@ This project uses semantic versioning once public releases begin.
 - Updated the open-source readiness tracker for the final repository URL and
   remaining publication evidence.
 
+### Security
+
+- Hardened privileged runtime file handling against symlink replacement and
+  reduced overlay sockets to owner-only access.
+- Rejected symlinked or non-user-owned custom library roots/files in the
+  privileged backend.
+- Added a pinned Bandit gate to pull-request CI and tagged release validation.
+- Dropped audio-routing, decoding, and playback subprocesses from Decky's root
+  context to the Steam user before executing host audio tools.
+
 ## 0.1.29 - 2026-06-20
 
 ### Changed

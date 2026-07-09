@@ -40,8 +40,13 @@ from decksoundpad.app import DeckSoundpadApp, start_healthcheck_loop
 from decksoundpad.config import Settings, load_config
 from decksoundpad.logging_setup import setup_logging
 from decksoundpad.models import AudioStatus, LibraryStatus, PlayerStatus, Status
-from decksoundpad.paths import ensure_app_dirs, resolve_paths
-from decksoundpad.process import decky_runtime_env
+from decksoundpad.paths import ensure_app_dirs, resolve_paths, user_owner
+from decksoundpad.process import decky_runtime_env, subprocess_user_kwargs
+from decksoundpad.safe_files import (
+    ensure_directory,
+    open_regular_file,
+    set_socket_metadata,
+)
 
 
 EV_KEY = 0x01
@@ -411,59 +416,29 @@ class Plugin:
         env.pop("WAYLAND_DISPLAY", None)
         return env
 
-    def _external_overlay_preexec(self) -> Callable[[], None] | None:
-        identity = self._external_overlay_target_identity()
-        if identity is None or not hasattr(os, "geteuid") or os.geteuid() != 0:
-            return None
-
-        uid, gid, username, _home = identity
-        if uid == 0:
-            return None
-
-        def demote() -> None:
-            # Decky may launch as root for input access, but the overlay window
-            # should run as the Steam user that owns the display session.
-            os.setgid(gid)
-            try:
-                os.initgroups(username, gid)
-            except OSError:
-                pass
-            os.setuid(uid)
-
-        return demote
-
     def _prepare_external_overlay_runtime_dir(self, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
         identity = self._external_overlay_target_identity()
-        if identity is None or not hasattr(os, "geteuid") or os.geteuid() != 0:
-            return
-        uid, gid, _username, _home = identity
-        try:
-            os.chown(path, uid, gid)
-            path.chmod(0o700)
-        except OSError as exc:
-            self._append_bridge_log(f"external overlay runtime dir ownership failed: {exc}")
-
-    def _prepare_external_overlay_log_file(self, path: Path) -> None:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch(exist_ok=True)
-        except OSError as exc:
-            self._append_bridge_log(f"external overlay log file prepare failed: {exc}")
-            return
-
-        identity = self._external_overlay_target_identity()
+        owner = None
         if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
             uid, gid, _username, _home = identity
-            try:
-                os.chown(path.parent, uid, gid)
-                os.chown(path, uid, gid)
-            except OSError as exc:
-                self._append_bridge_log(f"external overlay log ownership failed: {exc}")
-        try:
-            path.parent.chmod(0o775)
-            path.chmod(0o664)
-        except OSError:
+            owner = (uid, gid)
+        ensure_directory(path, mode=0o700, owner=owner)
+
+    def _prepare_external_overlay_log_file(self, path: Path) -> None:
+        identity = self._external_overlay_target_identity()
+        owner = None
+        if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
+            uid, gid, _username, _home = identity
+            owner = (uid, gid)
+        ensure_directory(path.parent, mode=0o750, owner=owner)
+        with open_regular_file(
+            path,
+            "a",
+            encoding="utf-8",
+            permissions=0o640,
+            enforce_permissions=True,
+            owner=owner,
+        ):
             pass
 
     def _start_external_overlay_action_server(self) -> None:
@@ -508,7 +483,7 @@ class Plugin:
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             server.bind(str(socket_path))
-            self._prepare_external_overlay_socket_file(socket_path, mode=0o666)
+            self._prepare_external_overlay_socket_file(socket_path, mode=0o600)
             server.listen(8)
             server.settimeout(0.5)
             self._append_bridge_log(f"external overlay action socket listening path={socket_path}")
@@ -541,16 +516,14 @@ class Plugin:
 
     def _prepare_external_overlay_socket_file(self, path: Path, *, mode: int) -> None:
         identity = self._external_overlay_target_identity()
+        owner = None
         if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
             uid, gid, _username, _home = identity
-            try:
-                os.chown(path, uid, gid)
-            except OSError as exc:
-                self._append_bridge_log(f"external overlay socket ownership failed: {exc}")
+            owner = (uid, gid)
         try:
-            path.chmod(mode)
+            set_socket_metadata(path, owner=owner, mode=mode)
         except OSError as exc:
-            self._append_bridge_log(f"external overlay socket chmod failed: {exc}")
+            self._append_bridge_log(f"external overlay socket metadata failed: {exc}")
 
     def _handle_external_overlay_action(self, command: dict[str, Any]) -> None:
         if not isinstance(command, dict):
@@ -609,7 +582,7 @@ class Plugin:
                 text=True,
                 timeout=2.5,
                 env=env,
-                preexec_fn=self._external_overlay_preexec(),
+                **subprocess_user_kwargs(self.paths.user_home),
             )
         except FileNotFoundError as exc:
             raise RuntimeError(f"external overlay python not found: {python}") from exc
@@ -685,16 +658,27 @@ class Plugin:
                 "--log",
                 str(log_file),
             ]
-            log_handle = log_file.open("a", encoding="utf-8")
-            self._external_overlay_process = subprocess.Popen(
-                args,
-                stdin=subprocess.DEVNULL,
-                stdout=log_handle,
-                stderr=log_handle,
-                env=env,
-                start_new_session=True,
-                preexec_fn=self._external_overlay_preexec(),
-            )
+            identity = self._external_overlay_target_identity()
+            owner = None
+            if identity is not None and hasattr(os, "geteuid") and os.geteuid() == 0:
+                owner = (identity[0], identity[1])
+            with open_regular_file(
+                log_file,
+                "a",
+                encoding="utf-8",
+                permissions=0o640,
+                enforce_permissions=True,
+                owner=owner,
+            ) as log_handle:
+                self._external_overlay_process = subprocess.Popen(
+                    args,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_handle,
+                    stderr=log_handle,
+                    env=env,
+                    start_new_session=True,
+                    **subprocess_user_kwargs(self.paths.user_home),
+                )
             uid_fragment = ""
             identity = self._external_overlay_target_identity()
             if identity is not None:
@@ -1417,8 +1401,16 @@ class Plugin:
         if paths is None:
             return
         try:
-            paths.public_log_dir.mkdir(parents=True, exist_ok=True)
-            with paths.public_bridge_log_file.open("a", encoding="utf-8") as handle:
+            owner = user_owner(paths)
+            ensure_directory(paths.public_log_dir, mode=0o750, owner=owner)
+            with open_regular_file(
+                paths.public_bridge_log_file,
+                "a",
+                encoding="utf-8",
+                permissions=0o640,
+                enforce_permissions=True,
+                owner=owner,
+            ) as handle:
                 handle.write(f"{line}\n")
         except OSError:
             return
