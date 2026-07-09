@@ -15,7 +15,7 @@ and packages directly imported from `src/` is bundled in
 | --- | ---: | --- |
 | `@decky/api` | 1.1.3 | LGPL-2.1 |
 | `react` | 19.2.7 | MIT |
-| `react-icons` | 5.6.0 | MIT |
+| `react-icons` | 5.7.0 | MIT |
 
 ## LGPL Source Availability
 
@@ -52,9 +52,10 @@ CC BY 4.0. Keep this attribution section current if icon imports change.
 | `@decky/ui` | 4.11.6 | LGPL-2.1 |
 | `@types/react` | 19.2.17 | MIT |
 | `@types/react-dom` | 19.1.1 | MIT |
-| `react-router` | 7.18.0 | MIT |
+| `react-router` | 8.1.0 | MIT |
 | `rollup` | 4.62.0 | MIT |
 | `typescript` | 5.9.3 | Apache-2.0 |
+| `typescript` | 6.0.3 | Apache-2.0 |
 
 ## Transitive License Families Observed
 

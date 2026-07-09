@@ -1062,7 +1062,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## react-icons 5.6.0
+## react-icons 5.7.0
 
 License: MIT
 Homepage: https://github.com/react-icons/react-icons#readme
