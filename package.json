@@ -51,7 +51,7 @@
     "@types/react-dom": "19.1.1",
     "react-router": "7.18.0",
     "rollup": "^4.53.3",
-    "typescript": "^5.6.2"
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "@decky/api": "^1.1.3",
