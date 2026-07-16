@@ -49,7 +49,7 @@ Require:
 - `corepack pnpm run validate:licenses` when dependencies change;
 - `corepack pnpm run scan:python-security` for privileged Python changes;
 - `corepack pnpm run validate:release` for packaging or release-flow changes;
-- Steam Deck validation notes for audio routing, overlay, input, or root-flag
+- Steam Deck validation notes for audio routing, overlay, input, or device-access
   changes.
 
 Review especially carefully when a change touches:

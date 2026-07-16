@@ -72,26 +72,27 @@ Game tested:
 
 Result notes:
 
-## Root Flag Diagnostic
+## No-Root Device Diagnostic
 
-Build a diagnostic candidate without `flags: ["root"]` in `plugin.json`, then
-repeat the core flows.
+The release candidate already contains no `root` flag. Validate optional device
+access as the normal Steam user and record unavailable paths as expected where
+SteamOS permissions do not expose them.
 
 - [ ] Decky panel loads without root.
 - [ ] Library refresh works without root.
 - [ ] Repair audio routing works without root.
 - [ ] Sound playback works without root.
-- [ ] `/dev/hidraw*` monitoring works without root.
-- [ ] `/dev/input/event*` monitoring works without root.
-- [ ] L5/R5 direct hotkeys work without root.
-- [ ] External overlay starts without root.
-- [ ] Overlay input grab works without root.
+- [ ] `/dev/hidraw*` monitoring works with normal-user permissions, or is documented as unavailable.
+- [ ] `/dev/input/event*` monitoring works with normal-user permissions, or is documented as unavailable.
+- [ ] L5/R5 direct hotkeys work with normal-user permissions, or are documented as unavailable.
+- [ ] External overlay starts without elevated privileges.
+- [ ] Overlay input grab is skipped safely when device access is unavailable.
 
 Conclusion:
 
-- [ ] Keep `root` flag for this release.
-- [ ] Remove `root` flag before release.
-- [ ] Split privileged features behind an explicit opt-in before release.
+- [ ] Confirm `plugin.json` contains no `root` flag.
+- [ ] Confirm no code path invokes an elevation helper.
+- [ ] Document any optional device permissions required by the target image.
 
 Rationale:
 

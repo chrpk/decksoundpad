@@ -14,8 +14,7 @@ The implementation map and module boundaries are maintained in
 - Prevent configured sound libraries from escaping into unexpected filesystem
   locations by default.
 - Avoid command injection in playback and audio-routing subprocesses.
-- Keep privileged behavior documented, testable, and removable when no longer
-  required.
+- Keep device access optional, documented, and bounded to the normal user.
 - Prevent public support workflows from leaking private paths, device names,
   sound filenames, or credentials.
 
@@ -55,20 +54,21 @@ Mitigations:
 
 - playback and routing code should prefer argument-list subprocess calls;
 - shell fallback paths must keep user-controlled values out of the script body;
-- when Decky launches the plugin as root, audio subprocesses drop to the Steam
-  user's UID, GID, and supplementary groups before executing host tools;
+- audio subprocesses run as the normal Steam user's UID, GID, and supplementary
+  groups before executing host tools;
 - release review requires careful inspection of subprocess construction.
 
-### Over-Broad Privileged Access
+### Unnecessary Device Access
 
-Threat: the Decky `root` flag could grant more access than the plugin needs.
+Threat: optional device monitoring could expand into an implicit privilege
+request or access devices outside the feature's scope.
 
 Mitigations:
 
-- privileged code paths are documented in `docs/ROOT_PERMISSION_RATIONALE.md`;
-- release validation requires a no-root diagnostic candidate on real hardware;
-- direct input and HID monitors are disabled by default when root is absent;
-- root usage must be re-justified or removed before each public release.
+- device paths are documented in `docs/ROOT_PERMISSION_RATIONALE.md`;
+- release validation rejects a `root` flag in `plugin.json`;
+- direct input and HID monitors are disabled when the normal user lacks access;
+- enabling diagnostics never invokes an elevation helper.
 
 ### Unsafe Local Sockets
 
@@ -137,7 +137,7 @@ Mitigations:
 Before public release, confirm:
 
 - no LAN listener or telemetry path was added;
-- root-flag diagnostic results are recorded;
+- optional device-access diagnostic results are recorded;
 - privileged file writes still reject symlinks and audio subprocesses still
   drop to the Steam user;
 - symlink escape tests still pass;

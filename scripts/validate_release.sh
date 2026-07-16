@@ -107,8 +107,8 @@ for (const keyword of pkg.keywords || []) {
 if (plugin.name !== 'DeckSoundpad') fail('plugin.json name must be DeckSoundpad');
 if (plugin.author !== pkg.author) fail('plugin.json author must match package.json author');
 if (plugin.api_version !== 1) fail('plugin.json api_version must be 1');
-if (!Array.isArray(plugin.flags) || !plugin.flags.includes('root')) {
-  fail('plugin.json must declare the root flag until hardware validation proves it can be removed');
+if (!Array.isArray(plugin.flags) || plugin.flags.includes('root')) {
+  fail('plugin.json must declare flags as an array without the root flag');
 }
 if (plugin.flags.includes('debug')) {
   fail('plugin.json must not include the debug flag in release validation');

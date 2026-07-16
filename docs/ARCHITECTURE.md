@@ -119,11 +119,10 @@ private sound names, account details, and credentials before sharing logs.
 
 ## Privileged Behavior
 
-`plugin.json` currently declares `flags: ["root"]`. The root flag exists for
-local input and overlay integration, not for network services or permanent
-SteamOS modification. The current rationale is maintained in
-`docs/ROOT_PERMISSION_RATIONALE.md`, and every public release must either
-re-justify, remove, or split privileged behavior based on hardware validation.
+`plugin.json` declares an empty `flags` array and never requests Decky's root
+mode. Local input and overlay integration are opportunistic: `/dev/input` and
+`/dev/hidraw` access is attempted only when the normal Steam user already has
+permission. See `docs/ROOT_PERMISSION_RATIONALE.md` for the no-root model.
 
 ## Simulation And Tests
 

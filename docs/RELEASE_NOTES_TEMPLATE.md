@@ -36,10 +36,10 @@ manifest records `generatedAt`, so rebuilds are intentionally build-specific.
 - External overlay opens and plays sounds in game mode: `<yes/no>`
 - Sleep/resume recovery verified with Repair audio routing: `<yes/no>`
 
-## Root Flag Review
+## Privilege Review
 
-- `flags: ["root"]` remains required: `<yes/no>`
-- Evidence summary: `<what failed without root, or why the flag was removed>`
+- Decky root flag requested: `no`
+- Optional device-access evidence: `<SteamOS/device permission result>`
 - Rationale: see `docs/ROOT_PERMISSION_RATIONALE.md`.
 
 ## Release Assets
@@ -73,7 +73,7 @@ Paste `DeckSoundpad/RELEASE_MANIFEST.json` from inside the ZIP:
   "version": "X.Y.Z",
   "backendVersion": "X.Y.Z",
   "apiVersion": 1,
-  "flags": ["root"],
+  "flags": [],
   "artifact": "DeckSoundpad-vX.Y.Z-full.zip",
   "sourceCommit": "<40-character commit SHA>",
   "sourceDirty": false,
