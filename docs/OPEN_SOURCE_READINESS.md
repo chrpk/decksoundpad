@@ -66,10 +66,9 @@ A deeper comparison matrix is maintained in `docs/REFERENCE_REPOS.md`.
   decision: add `docs/RELEASE_ASSETS.md` for required release media, redaction
   rules, and Decky Store image expectations. Release media may be committed or
   attached to GitHub Releases, but it is excluded from the runtime plugin ZIP.
-- Privileged Decky plugins need a clear user-facing reason for the root flag.
-  Local decision: keep `flags: ["root"]` for now, document every privileged
-  path, and require hardware validation before either removing or permanently
-  justifying it.
+- Decky plugins should avoid unnecessary privilege. Local decision: keep
+  `plugin.json` flags empty and document optional `/dev` device access without
+  adding an elevation request.
 - Hardware-bound Decky plugins become hard to maintain when SteamOS, Arch Linux,
   or Decky Loader behavior changes. Local decision: require release-candidate
   hardware evidence, minimum supported SteamOS/Decky versions, and a
@@ -240,12 +239,12 @@ Added during open-source preparation:
     run validate:publication` requires public repository evidence, Deckbrew
     LLM/code-provenance evidence, SteamOS test evidence, and Decky Plugin
     Database PR evidence.
-- [ ] Confirm the `root` flag is still required.
-  - Evidence needed: hardware validation showing which input/overlay features
-    fail without root, or a patch removing the flag.
+- [x] Confirm the `root` flag is not requested.
+  - Evidence: `plugin.json` has an empty `flags` array and release validation
+    rejects the root flag.
   - Documentation required: README and SECURITY must keep the rationale current.
-  - Current support: `docs/ROOT_PERMISSION_RATIONALE.md` documents the static
-    code paths that use privileged local device and socket operations.
+  - Current support: `docs/ROOT_PERMISSION_RATIONALE.md` documents optional
+    local device access and the no-elevation runtime model.
 - [ ] Publish first release artifact with checksum.
   - Evidence needed: GitHub release containing `DeckSoundpad-vX.Y.Z-full.zip`
     and SHA-256 checksum.
@@ -579,10 +578,10 @@ Added during open-source preparation:
 
 ## Technical Risk Register
 
-- Root Decky flag:
-  - Risk: public users need clear justification for privileged plugin behavior.
-  - Mitigation: document why it is requested and re-check whether features can
-    be split into optional privileged paths.
+- Optional device access:
+  - Risk: controller monitoring may be unavailable under SteamOS permissions.
+  - Mitigation: keep monitoring opportunistic, fail closed when devices cannot
+    be opened, and never add an implicit elevation request.
 - Audio routing:
   - Risk: SteamOS/PipeWire behavior changes can break module loading.
   - Mitigation: keep parser tests, hardware POC, and repair workflow current.
@@ -593,8 +592,8 @@ Added during open-source preparation:
 - Subprocess playback:
   - Risk: shell quoting mistakes can become command injection bugs.
   - Mitigation: most commands use argument lists; shell fallback passes paths
-    as positional parameters, and root-launched audio subprocesses drop to the
-    Steam user before executing host tools.
+    as positional parameters, and audio subprocesses run as the normal Steam
+    user before executing host tools.
 - Privileged local files:
   - Risk: user-controlled symlinks could redirect root-owned state or log
     operations to sensitive host files.

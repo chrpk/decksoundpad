@@ -211,10 +211,8 @@ requireText(
 const rootDecision = env("DECKSOUNDPAD_ROOT_FLAG_DECISION");
 if (!/^(keep|remove|split)$/i.test(rootDecision)) {
   fail("DECKSOUNDPAD_ROOT_FLAG_DECISION must be one of: keep, remove, split");
-} else if (/^keep$/i.test(rootDecision) && (!Array.isArray(plugin.flags) || !plugin.flags.includes("root"))) {
-  fail("DECKSOUNDPAD_ROOT_FLAG_DECISION=keep requires plugin.json to retain flags: [\"root\"]");
-} else if (/^remove$/i.test(rootDecision) && Array.isArray(plugin.flags) && plugin.flags.includes("root")) {
-  fail("DECKSOUNDPAD_ROOT_FLAG_DECISION=remove requires plugin.json to remove the root flag");
+} else if (Array.isArray(plugin.flags) && plugin.flags.includes("root")) {
+  fail("plugin.json must not request the root flag");
 }
 
 if (failures.length > 0) {

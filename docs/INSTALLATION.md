@@ -26,7 +26,7 @@ contains the Python backend, defaults, public docs, license, and
 
 ## Update
 
-1. Read the release notes for compatibility, root-flag, hardware validation,
+1. Read the release notes for compatibility, device-access, hardware validation,
    and known-limitations changes.
 2. Keep a copy of any custom sound library directories before changing plugin
    versions.

@@ -26,12 +26,12 @@ announced or submitted to a plugin index.
 - Decky Loader
 - PipeWire/PulseAudio compatibility tools available on the system
 
-No root filesystem modification or `pacman` package installation is required.
-The Decky metadata requests the `root` flag because input monitoring and the
-external overlay need privileged access to local device/socket resources. The
-plugin does not expose a LAN API and does not modify the read-only SteamOS root
-filesystem. See [docs/ROOT_PERMISSION_RATIONALE.md](docs/ROOT_PERMISSION_RATIONALE.md)
-for the current rationale and release validation plan.
+No root filesystem modification, privilege escalation, or `pacman` package
+installation is required. The plugin does not expose a LAN API and does not
+modify the read-only SteamOS root filesystem. Direct `/dev/input` and
+`/dev/hidraw` hotkeys remain optional and work only when the running user already
+has device access. See [docs/ROOT_PERMISSION_RATIONALE.md](docs/ROOT_PERMISSION_RATIONALE.md)
+for the no-root access model.
 Compatibility status and minimum supported version evidence are tracked in
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
@@ -102,7 +102,7 @@ privileged backend rejects symlink roots and non-user-owned sound files.
 1. Open the Decky panel.
 2. Select Repair audio routing.
 3. Select `DeckSoundpad mic` in Discord, Steam Voice, a game, or browser voice chat.
-4. Press L5 in-game to open the overlay and play sounds.
+4. Press L5 in-game to open the overlay when the Steam user has controller-device access.
 
 ## Troubleshooting
 

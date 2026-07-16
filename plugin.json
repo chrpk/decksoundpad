@@ -1,7 +1,7 @@
 {
   "name": "DeckSoundpad",
   "author": "DeckSoundpad contributors",
-  "flags": ["root"],
+  "flags": [],
   "api_version": 1,
   "publish": {
     "tags": ["soundboard", "audio", "pipewire", "microphone"],
