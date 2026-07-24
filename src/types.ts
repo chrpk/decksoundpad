@@ -1,6 +1,6 @@
-export type OverlapMode = "overlap" | "single" | "per_sound";
+type OverlapMode = "overlap" | "single" | "per_sound";
 
-export interface SoundItem {
+interface SoundItem {
   id: string;
   display_name: string;
   path: string;
@@ -9,7 +9,7 @@ export interface SoundItem {
   extension: string;
 }
 
-export interface AudioStatus {
+interface AudioStatus {
   pipewire_available: boolean;
   pactl_available: boolean;
   sink_exists: boolean;
@@ -23,15 +23,15 @@ export interface AudioStatus {
   state?: string;
 }
 
-export interface PlayerStatus {
+interface PlayerStatus {
   backend: string | null;
 }
 
-export interface LibraryStatus {
+interface LibraryStatus {
   count: number;
 }
 
-export interface PlaybackRoute {
+interface PlaybackRoute {
   backend: string | null;
   virtual_input: "decksoundpad_mic";
   sink: "decksoundpad_sink";

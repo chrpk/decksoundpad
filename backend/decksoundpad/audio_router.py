@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, fields, replace
-from typing import Callable, Protocol, Sequence, TypeVar
+from typing import Protocol, TypeVar
 
 from .config import Settings
 from .models import AudioModule, AudioProbe, AudioSource, AudioStatus
 from .paths import AppPaths, ensure_app_dirs
 from .process import RunResult, command_exists, decky_runtime_env, run_capture
 from .safe_files import open_regular_file
-
 
 SINK_NAME = "decksoundpad_sink"
 SINK_DESCRIPTION = "DeckSoundpad internal mix bus"
@@ -188,9 +188,7 @@ def _optional_str(value: object) -> str | None:
 def source_is_real_mic(source_name: str) -> bool:
     if source_name in {MIC_NAME, f"{SINK_NAME}.monitor"}:
         return False
-    if source_name.endswith(".monitor"):
-        return False
-    return True
+    return not source_name.endswith(".monitor")
 
 
 def module_is_decksoundpad(module: AudioModule) -> bool:

@@ -23,7 +23,6 @@ except ValueError:
 
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
-
 LOGGER = logging.getLogger("decksoundpad.external_overlay")
 GAMESCOPE_OVERLAY_ATOMS = ("GAMESCOPE_EXTERNAL_OVERLAY", "STEAM_EXTERNAL_OVERLAY")
 DEFAULT_WIDTH = 1280

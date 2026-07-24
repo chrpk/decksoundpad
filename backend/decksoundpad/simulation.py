@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 from .audio_formats import audio_extension, can_play_supported_extension
 from .audio_router import MIC_NAME, SINK_NAME

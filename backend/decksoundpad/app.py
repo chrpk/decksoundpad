@@ -14,8 +14,11 @@ from .config import Settings, load_config, patch_settings, save_config
 from .library import SoundLibrary
 from .models import AudioStatus, LibraryStatus, PlayerStatus, Status
 from .paths import AppPaths, ensure_app_dirs
-from .simulation import SimulatedAudioRouter, SimulatedPlaybackManager, simulation_enabled
-
+from .simulation import (
+    SimulatedAudioRouter,
+    SimulatedPlaybackManager,
+    simulation_enabled,
+)
 
 PLAYBACK_ROUTE_READY_CACHE_SECONDS = 30.0
 

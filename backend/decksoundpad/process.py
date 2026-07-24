@@ -4,9 +4,16 @@ import os
 import pwd
 import shutil
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import TypedDict
+
+
+class SubprocessUserKwargs(TypedDict, total=False):
+    user: int
+    group: int
+    extra_groups: list[int]
 
 
 @dataclass(frozen=True)
@@ -130,7 +137,7 @@ def run_capture(
     return RunResult(completed.returncode, completed.stdout, completed.stderr)
 
 
-def subprocess_user_kwargs(user_home: Path | None) -> dict[str, object]:
+def subprocess_user_kwargs(user_home: Path | None) -> SubprocessUserKwargs:
     """Return Popen options that drop a root child to the Steam user."""
 
     if user_home is None or not hasattr(os, "geteuid") or os.geteuid() != 0:

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-
 OverlapMode = Literal["overlap", "single", "per_sound"]
 
 
