@@ -5,8 +5,8 @@ from __future__ import annotations
 # The backend package is added to sys.path before its imports below. Keep that
 # runtime setup close to the imports and document the intentional E402 exception.
 # ruff: noqa: E402
-
 import asyncio
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - SteamOS/Linux always has fcntl.
@@ -22,8 +22,9 @@ import sys
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 try:
     import decky
@@ -53,7 +54,6 @@ from decksoundpad.safe_files import (
     open_regular_file,
     set_socket_metadata,
 )
-
 
 EV_KEY = 0x01
 BTN_TL2 = 0x138
@@ -799,7 +799,7 @@ class Plugin:
                     return
                 finally:
                     client.close()
-            except (FileNotFoundError, ConnectionRefusedError, socket.timeout, OSError) as exc:
+            except OSError as exc:
                 last_error = exc
                 if attempt == 3 and start_process:
                     self._ensure_external_overlay_process()
@@ -1343,11 +1343,8 @@ class Plugin:
             self._record_bridge_exception(f"handle R5 direct previous sound source={source}", exc)
 
     def _fallback_status(self, last_error: str) -> dict[str, Any]:
-        mic_passthrough_enabled = False
-        try:
-            mic_passthrough_enabled = bool(self.settings.mic_passthrough_enabled)
-        except Exception:
-            pass
+        settings = getattr(self, "settings", None)
+        mic_passthrough_enabled = bool(getattr(settings, "mic_passthrough_enabled", False))
         status = Status(
             backend_running=False,
             audio=AudioStatus(last_error=last_error, state="offline"),

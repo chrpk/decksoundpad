@@ -9,7 +9,6 @@ from .models import OverlapMode
 from .paths import AppPaths, ensure_app_dirs
 from .safe_files import open_regular_file
 
-
 VALID_OVERLAP_MODES = {"overlap", "single", "per_sound"}
 DEFAULT_ALLOWED_EXTENSIONS = [".wav", ".flac", ".ogg", ".mp3"]
 DEFAULT_MAX_PLAYBACK_SECONDS = 30.0

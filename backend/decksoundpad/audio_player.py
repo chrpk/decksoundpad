@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import logging
 import os
-import signal
 import shlex
+import signal
 import subprocess
 import threading
 import time
 import wave
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Protocol, Sequence, cast
+from typing import IO, Protocol, cast
 
 try:
     import audioop
@@ -26,9 +27,13 @@ from .audio_formats import (
 from .audio_router import SINK_NAME
 from .config import Settings
 from .paths import AppPaths
-from .process import command_exists, decky_runtime_env, run_capture, subprocess_user_kwargs
+from .process import (
+    command_exists,
+    decky_runtime_env,
+    run_capture,
+    subprocess_user_kwargs,
+)
 from .safe_files import open_regular_file
-
 
 PLAYBACK_STARTUP_GRACE_SECONDS = 0.12
 LOW_LATENCY_SAMPLE_RATE = 48000
@@ -405,8 +410,7 @@ class LowLatencyRawMixer:
                 "-",
             ],
             check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             env=playback_env(),
             timeout=10,
             **subprocess_user_kwargs(self.paths.user_home if self.paths else None),

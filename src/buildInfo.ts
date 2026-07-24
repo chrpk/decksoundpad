@@ -1,8 +1,8 @@
 declare const __BUILD_DATETIME__: string | undefined;
 declare const __PACKAGE_VERSION__: string | undefined;
 
-export const BUILD_DATETIME = formatBuildDateTime(rawBuildDateTime());
-export const PACKAGE_VERSION = rawPackageVersion();
+const BUILD_DATETIME = formatBuildDateTime(rawBuildDateTime());
+const PACKAGE_VERSION = rawPackageVersion();
 export const BUILD_METADATA = formatBuildMetadata(PACKAGE_VERSION, BUILD_DATETIME);
 
 function rawBuildDateTime(): string | undefined {
