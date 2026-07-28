@@ -21,11 +21,11 @@ function overlayControls(button: OverlayHotkeyButton): ControlDetail[] {
 const menuControls: ControlDetail[] = [
   {
     label: "Restart DeckSoundpad",
-    detail: "Stops playback, recreates the runtime, rebuilds the virtual mic route, and rescans sounds.",
+    detail: "Stops playback and reloads audio, sounds, settings, and controller input.",
   },
   { label: "Real mic passthrough", detail: "Keeps your physical microphone mixed with soundboard playback." },
   { label: "Refresh sounds", detail: "Reloads WAV, FLAC, OGG, and MP3 files from the configured folders." },
-  { label: "Voice input", detail: "Select DeckSoundpad mic in Discord, Steam Voice, games, or browser voice chat." },
+  { label: "Voice input", detail: "Select DeckSoundpad mic in your voice app." },
 ];
 
 interface ControlsPanelProps {

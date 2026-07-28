@@ -41,6 +41,7 @@ class FakeBackendApp:
         self.play_payloads: list[dict[str, object]] = []
         self.refresh_calls = 0
         self.repair_calls = 0
+        self.close_calls = 0
         self.raise_status = False
         self.sounds: list[dict[str, object]] = [{"id": "sound-1"}]
 
@@ -69,9 +70,22 @@ class FakeBackendApp:
         self.refresh_calls += 1
         return {"ok": True, "sounds": [{"id": "sound-1"}]}
 
-    def repair_audio(self) -> dict[str, object]:
+    def repair_audio(
+        self,
+        *,
+        before_restart: object = None,
+        after_restart: object = None,
+    ) -> dict[str, object]:
         self.repair_calls += 1
+        if callable(before_restart):
+            before_restart()
+        if callable(after_restart):
+            after_restart()
         return AudioStatus(last_error="DeckSoundpad restart started", state="repairing").to_dict()
+
+    def close(self) -> None:
+        self.close_calls += 1
+        self.player.stop_all()
 
     def settings_payload(self) -> dict[str, object]:
         return self.settings.to_dict()
@@ -98,6 +112,8 @@ class DirectPlugin(Plugin):
         self._bridge_errors: list[str] = []
         self._backend_lock = threading.RLock()
         self._backend_start_thread = None
+        self._bridge_lifecycle_lock = threading.RLock()
+        self._unloading = False
         self._healthcheck_stop = None
         self._hotkey_stop = threading.Event()
         self._hotkey_thread = None
@@ -118,6 +134,7 @@ class DirectPlugin(Plugin):
         self._external_overlay_last_direct_toggle = 0.0
         self._external_overlay_action_stop = threading.Event()
         self._external_overlay_action_thread = None
+        self._external_overlay_action_server_socket = None
         self._external_overlay_input_grab_handles = []
         self._external_overlay_input_grab_attempted = False
         self._external_overlay_evdev_stop = threading.Event()
@@ -127,9 +144,18 @@ class DirectPlugin(Plugin):
         self._hidraw_stick_last_at: dict[str, float] = {}
         self.fake_app = FakeBackendApp(self.settings)
         self.app = self.fake_app
+        self.bridge_teardown_calls = 0
+        self.bridge_reinitialization_calls = 0
 
     def _create_backend(self) -> FakeBackendApp:  # type: ignore[override]
         return self.fake_app
+
+    def _prepare_bridge_runtime_restart(self) -> None:
+        self.bridge_teardown_calls += 1
+
+    def _finish_bridge_runtime_restart(self) -> None:
+        self.bridge_reinitialization_calls += 1
+        self.settings = self.fake_app.settings
 
 
 class MainAutoStartPlugin(Plugin):
@@ -162,6 +188,16 @@ class MainBridgeTests(unittest.TestCase):
         self.assertIn("backend unavailable", response["audio"]["last_error"])  # type: ignore[index]
         joined = "\n".join(plugin._bridge_errors)
         self.assertIn("status boom", joined)
+
+    def test_repair_audio_restarts_backend_and_bridge_lifecycles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            response = asyncio.run(plugin.repair_audio())
+
+        self.assertTrue(response["backend_running"])
+        self.assertEqual(plugin.fake_app.repair_calls, 1)
+        self.assertEqual(plugin.bridge_teardown_calls, 1)
+        self.assertEqual(plugin.bridge_reinitialization_calls, 1)
 
     def test_start_backend_initializes_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,6 +251,82 @@ class MainBridgeTests(unittest.TestCase):
         self.assertEqual(response["overlay_input_device"], selector)
         self.assertEqual(plugin.settings.overlay_input_device, selector)
         restart.assert_called_once_with()
+
+    def test_full_runtime_restart_reinitializes_bridge_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            plugin._bridge_errors = ["stale error"]
+            plugin._external_overlay_visible = True
+            plugin._external_overlay_sounds = [{"id": "old"}]
+            plugin._external_overlay_page = 4
+            plugin._external_overlay_selected_index = 12
+            plugin._hidraw_action_last_at["old"] = 1.0
+            plugin._hidraw_stick_direction["old"] = "left"
+            plugin._hidraw_stick_last_at["old"] = 1.0
+            plugin._healthcheck_stop = threading.Event()
+            with (
+                patch.object(plugin, "_stop_input_monitor_restart_coordinator") as stop_coordinator,
+                patch.object(plugin, "_stop_external_overlay") as stop_overlay,
+                patch.object(plugin, "_stop_hotkey_monitor") as stop_hotkey,
+                patch.object(plugin, "_stop_hidraw_monitor") as stop_hidraw,
+                patch.object(plugin, "_stop_external_overlay_action_server") as stop_actions,
+            ):
+                Plugin._prepare_bridge_runtime_restart(plugin)
+
+            stop_coordinator.assert_called_once_with()
+            stop_overlay.assert_called_once_with()
+            stop_hotkey.assert_called_once_with()
+            stop_hidraw.assert_called_once_with()
+            stop_actions.assert_called_once_with()
+            self.assertIsNone(plugin._healthcheck_stop)
+            self.assertFalse(plugin._external_overlay_visible)
+            self.assertEqual(plugin._external_overlay_sounds, [])
+            self.assertEqual(plugin._external_overlay_page, 0)
+            self.assertEqual(plugin._external_overlay_selected_index, 0)
+            self.assertNotIn("stale error", plugin._bridge_errors)
+            self.assertTrue(
+                any("bridge teardown finished" in entry for entry in plugin._bridge_errors)
+            )
+            self.assertEqual(plugin._hidraw_action_last_at, {})
+            self.assertEqual(plugin._hidraw_stick_direction, {})
+            self.assertEqual(plugin._hidraw_stick_last_at, {})
+
+            plugin._input_restarts_disabled = True
+            with (
+                patch.object(plugin, "_start_healthcheck") as start_healthcheck,
+                patch.object(plugin, "_start_external_overlay_action_server") as start_actions,
+                patch.object(plugin, "_start_hotkey_monitor") as start_hotkey,
+                patch.object(plugin, "_start_hidraw_monitor") as start_hidraw,
+            ):
+                Plugin._finish_bridge_runtime_restart(plugin)
+
+            self.assertFalse(plugin._input_restarts_disabled)
+            start_healthcheck.assert_called_once_with()
+            start_actions.assert_called_once_with()
+            start_hotkey.assert_called_once_with()
+            start_hidraw.assert_called_once_with()
+
+    def test_bridge_reinitialization_does_not_resurrect_unloaded_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            plugin._unloading = True
+            plugin._input_restarts_disabled = True
+            with (
+                patch.object(plugin, "_start_healthcheck") as start_healthcheck,
+                patch.object(plugin, "_start_external_overlay_action_server") as start_actions,
+                patch.object(plugin, "_start_hotkey_monitor") as start_hotkey,
+                patch.object(plugin, "_start_hidraw_monitor") as start_hidraw,
+            ):
+                Plugin._finish_bridge_runtime_restart(plugin)
+
+        start_healthcheck.assert_not_called()
+        start_actions.assert_not_called()
+        start_hotkey.assert_not_called()
+        start_hidraw.assert_not_called()
+        self.assertTrue(plugin._input_restarts_disabled)
+        self.assertTrue(
+            any("skipped during unload" in entry for entry in plugin._bridge_errors)
+        )
 
     def test_get_input_devices_returns_auto_and_discovered_controllers(self) -> None:
         discovered = [
@@ -495,6 +607,26 @@ class MainBridgeTests(unittest.TestCase):
 
         self.assertEqual(handles, [])
 
+    def test_stop_external_overlay_releases_grabs_and_reaps_process(self) -> None:
+        process = MagicMock()
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = DirectPlugin(Path(tmp))
+            plugin._external_overlay_process = process
+            plugin._external_overlay_visible = True
+            with (
+                patch.object(plugin, "_release_external_overlay_input_grab") as release_grab,
+                patch.object(plugin, "_send_external_overlay_command") as send_command,
+            ):
+                plugin._stop_external_overlay()
+
+        release_grab.assert_called_once_with()
+        send_command.assert_called_once_with({"type": "quit"}, start_process=False)
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=0.75)
+        self.assertFalse(plugin._external_overlay_visible)
+        self.assertIsNone(plugin._external_overlay_process)
+
     def test_automatic_mode_reads_evdev_devices_after_grab(self) -> None:
         device = {
             "id": "evdev:0000000000000001",
@@ -517,6 +649,12 @@ class MainBridgeTests(unittest.TestCase):
                 plugin._grab_external_overlay_input_devices()
                 start_reader.assert_called_once_with()
                 plugin._release_external_overlay_input_grab()
+
+        self.assertEqual(
+            [call.args[2] for call in fake_fcntl.ioctl.call_args_list],
+            [1, 0],
+        )
+        fake_handle.close.assert_called_once_with()
 
     def test_input_restart_coordinator_does_not_drop_a_pending_restart(self) -> None:
         first_started = threading.Event()

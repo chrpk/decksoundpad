@@ -382,8 +382,17 @@ class AudioRouter:
 
     def teardown(self) -> None:
         modules = [module for module in self.list_modules() if module_is_decksoundpad(module)]
+        failures: list[str] = []
         for module in modules:
-            self.runner.run(["pactl", "unload-module", str(module.id)], timeout=PACTL_UNLOAD_TIMEOUT)
+            result = self.runner.run(
+                ["pactl", "unload-module", str(module.id)],
+                timeout=PACTL_UNLOAD_TIMEOUT,
+            )
+            if not result.ok:
+                detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+                failures.append(f"module {module.id}: {detail}")
+        if failures:
+            raise RuntimeError("failed to unload DeckSoundpad modules: " + "; ".join(failures))
         self._save_module_state(ModuleState())
 
     def _load_null_sink(self) -> int | None:

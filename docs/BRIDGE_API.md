@@ -35,8 +35,10 @@ The frontend must call only the Python methods listed here.
 
 `restartDeckSoundpadAndWait()` is a frontend helper, not a Python method. It calls
 `repair_audio`, reports the immediate status to the caller, then polls
-`get_status` every 500 ms until audio state leaves `starting`, `repairing`, or
-`pending`.
+`get_status` every 500 ms until `restart_completed_id` reaches the
+`restart_id` returned by that exact request and `restart_running` is false.
+The audio-state check is retained only as compatibility behavior for an older
+backend that does not return restart operation identifiers.
 
 `play_sound` is not a public frontend bridge callable in the current UI. The
 backend has `DeckSoundpadApp.play_sound()` and `main.py` uses it internally for
@@ -53,6 +55,9 @@ must be added to this document, `src/api/decky.ts`, `src/types.ts`, and
 interface DeckSoundpadStatus {
   version?: string;
   backend_running: boolean;
+  restart_running?: boolean;
+  restart_id?: number;
+  restart_completed_id?: number;
   audio: AudioStatus;
   player: { backend: string | null };
   library: { count: number };
@@ -60,6 +65,12 @@ interface DeckSoundpadStatus {
   playback_route?: PlaybackRoute;
 }
 ```
+
+While a restart is active, `get_status` always reports `audio.state` as
+`repairing`, even if an older route check finishes and attempts to publish a
+cached `ready` result. Restart IDs are monotonically increasing within one
+backend process and prevent an unrelated terminal status from ending frontend
+polling early.
 
 `AudioStatus` mirrors `backend/decksoundpad/models.py`:
 
@@ -187,13 +198,14 @@ background thread, then returns `get_status`. The background startup performs
 audio repair and library refresh once per plugin load.
 
 `repair_audio` is retained as the callable name for compatibility, but now starts
-an asynchronous full runtime restart. The restart stops active playback and the
-persistent low-latency stream, tears down the old DeckSoundpad audio graph,
-reloads persisted settings, recreates the router/player/library components,
-rebuilds the route, and rescans the sound library. It can supersede an in-flight
-route check; stale route-check status is not allowed to overwrite restart
-progress. The Python method returns immediately and the frontend helper polls
-until the task settles.
+an asynchronous full runtime restart. It stops playback and the persistent
+mixer, input listeners, the overlay action server, and the external overlay;
+releases input grabs; tears down the audio graph; reloads settings; recreates the
+router/player/library components; rediscovers controller devices; restarts the
+bridge workers; rebuilds the route; and rescans sounds. It can supersede an
+in-flight route check; stale route-check status cannot overwrite restart
+progress. The Python method returns immediately and the frontend polls until the
+task settles.
 
 ## Error And Fallback Semantics
 

@@ -214,6 +214,8 @@ class Plugin:
         self._backend_lock = threading.RLock()
         self._backend_start_thread: threading.Thread | None = None
         self._backend_start_completed = False
+        self._bridge_lifecycle_lock = threading.RLock()
+        self._unloading = False
         self._healthcheck_stop: threading.Event | None = None
         self._hotkey_stop = threading.Event()
         self._hotkey_thread: threading.Thread | None = None
@@ -234,6 +236,7 @@ class Plugin:
         self._external_overlay_last_direct_toggle = 0.0
         self._external_overlay_action_stop = threading.Event()
         self._external_overlay_action_thread: threading.Thread | None = None
+        self._external_overlay_action_server_socket: socket.socket | None = None
         self._external_overlay_input_grab_handles: list[tuple[str, str, Any]] = []
         self._external_overlay_input_grab_attempted = False
         self._external_overlay_evdev_stop = threading.Event()
@@ -254,17 +257,22 @@ class Plugin:
         self._request_backend_start_background()
 
     async def _unload(self) -> None:
-        self._stop_input_monitor_restart_coordinator()
-        self._stop_hotkey_monitor()
-        self._stop_hidraw_monitor()
-        self._stop_external_overlay_action_server()
-        self._stop_external_overlay()
-        stop_healthcheck = getattr(self, "_healthcheck_stop", None)
-        if stop_healthcheck is not None:
-            stop_healthcheck.set()
+        self._unloading = True
+        with self._bridge_lifecycle_lock:
+            self._stop_input_monitor_restart_coordinator()
+            self._stop_hotkey_monitor()
+            self._stop_hidraw_monitor()
+            self._stop_external_overlay_action_server()
+            self._stop_external_overlay()
+            self._stop_healthcheck()
         app = getattr(self, "app", None)
         if app is not None:
-            await asyncio.to_thread(app.player.stop_all)
+            close_backend = getattr(app, "close", None)
+            if callable(close_backend):
+                await asyncio.to_thread(close_backend)
+            else:
+                close_player = getattr(app.player, "close", app.player.stop_all)
+                await asyncio.to_thread(close_player)
         self.logger.info("DeckSoundpad Decky bridge unloaded")
         self._append_bridge_log("DeckSoundpad Decky bridge unloaded")
 
@@ -289,7 +297,10 @@ class Plugin:
     async def repair_audio(self) -> dict[str, Any]:
         await self._call_backend(
             "audio_repair",
-            lambda app: app.repair_audio(),
+            lambda app: app.repair_audio(
+                before_restart=self._prepare_bridge_runtime_restart,
+                after_restart=self._finish_bridge_runtime_restart,
+            ),
             fallback={},
         )
         return await self.get_status()
@@ -337,6 +348,52 @@ class Plugin:
 
     def _create_backend(self) -> DeckSoundpadApp:
         return DeckSoundpadApp(self.paths, settings=self.settings, logger=self.logger)
+
+    def _prepare_bridge_runtime_restart(self) -> None:
+        with self._bridge_lifecycle_lock:
+            self._bridge_errors.clear()
+            self._append_bridge_log("full runtime restart: bridge teardown started")
+            self._stop_input_monitor_restart_coordinator()
+            with self._input_monitor_lock:
+                self._stop_external_overlay()
+                self._stop_hotkey_monitor()
+                self._stop_hidraw_monitor()
+            action_server_stopped = self._stop_external_overlay_action_server()
+            self._stop_healthcheck()
+            with self._external_overlay_lock:
+                self._external_overlay_visible = False
+                self._external_overlay_sounds = []
+                self._external_overlay_page = 0
+                self._external_overlay_selected_index = 0
+                self._external_overlay_message = "Restarting DeckSoundpad"
+                self._external_overlay_last_direct_toggle = 0.0
+            self._hidraw_action_last_at.clear()
+            self._hidraw_stick_direction.clear()
+            self._hidraw_stick_last_at.clear()
+            self._append_bridge_log("full runtime restart: bridge teardown finished")
+            if not action_server_stopped:
+                raise RuntimeError("external overlay action server did not stop")
+
+    def _finish_bridge_runtime_restart(self) -> None:
+        with self._bridge_lifecycle_lock:
+            if self._unloading:
+                self._append_bridge_log(
+                    "full runtime restart: bridge reinitialization skipped during unload"
+                )
+                return
+            self.settings = self._backend().settings
+            with self._input_restart_request_lock:
+                self._input_restarts_disabled = False
+                self._input_restart_requested.clear()
+                thread = self._input_restart_thread
+                if thread is None or not thread.is_alive():
+                    self._input_restart_thread = None
+            self._start_healthcheck()
+            self._start_external_overlay_action_server()
+            with self._input_monitor_lock:
+                self._start_hotkey_monitor()
+                self._start_hidraw_monitor()
+            self._append_bridge_log("full runtime restart: bridge reinitialization finished")
 
     def _backend(self) -> DeckSoundpadApp:
         app = getattr(self, "app", None)
@@ -405,8 +462,11 @@ class Plugin:
     def _backend_start_worker(self) -> None:
         try:
             app = self._backend()
-            self._append_bridge_log("backend initialization: repair audio routing")
-            repair_response = app.repair_audio()
+            self._append_bridge_log("backend initialization: full runtime restart")
+            repair_response = app.repair_audio(
+                before_restart=self._prepare_bridge_runtime_restart,
+                after_restart=self._finish_bridge_runtime_restart,
+            )
             self._log_bridge_action("audio_repair", "startup response", None, repair_response)
             self._append_bridge_log("backend initialization: refresh sound library")
             library_response = app.refresh_library()
@@ -419,7 +479,20 @@ class Plugin:
         if not self.settings.background_healthcheck_enabled:
             self.logger.info("background healthcheck disabled")
             return
+        current = getattr(self, "_healthcheck_stop", None)
+        if current is not None and not current.is_set():
+            return
         self._healthcheck_stop = start_healthcheck_loop(self._backend())
+
+    def _stop_healthcheck(self) -> None:
+        stop = getattr(self, "_healthcheck_stop", None)
+        if stop is None:
+            return
+        stop.set()
+        thread = getattr(stop, "_decksoundpad_thread", None)
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+        self._healthcheck_stop = None
 
     def _start_hotkey_monitor(self) -> None:
         if not _input_hotkey_monitor_enabled():
@@ -603,20 +676,32 @@ class Plugin:
     def _start_external_overlay_action_server(self) -> None:
         thread = getattr(self, "_external_overlay_action_thread", None)
         if thread is not None and thread.is_alive():
-            return
-        self._external_overlay_action_stop.clear()
+            stop = getattr(self, "_external_overlay_action_stop", None)
+            if stop is not None and stop.is_set():
+                thread.join(timeout=2.0)
+            if thread.is_alive():
+                raise RuntimeError("previous external overlay action server is still stopping")
+        stop = threading.Event()
+        self._external_overlay_action_stop = stop
         thread = threading.Thread(
             target=self._external_overlay_action_server_worker,
+            args=(stop,),
             name="decksoundpad-overlay-actions",
             daemon=True,
         )
         self._external_overlay_action_thread = thread
         thread.start()
 
-    def _stop_external_overlay_action_server(self) -> None:
+    def _stop_external_overlay_action_server(self) -> bool:
         stop = getattr(self, "_external_overlay_action_stop", None)
         if stop is not None:
             stop.set()
+        server = getattr(self, "_external_overlay_action_server_socket", None)
+        if server is not None:
+            try:
+                server.close()
+            except OSError:
+                pass
         try:
             client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
@@ -628,9 +713,14 @@ class Plugin:
             pass
         thread = getattr(self, "_external_overlay_action_thread", None)
         if thread is not None and thread.is_alive():
-            thread.join(timeout=0.5)
+            thread.join(timeout=1.5)
+        if thread is not None and thread.is_alive():
+            self._append_bridge_log("external overlay action server did not stop")
+            return False
+        self._external_overlay_action_thread = None
+        return True
 
-    def _external_overlay_action_server_worker(self) -> None:
+    def _external_overlay_action_server_worker(self, stop: threading.Event) -> None:
         socket_path = self._external_overlay_action_socket_path()
         try:
             self._prepare_external_overlay_runtime_dir(socket_path.parent)
@@ -640,19 +730,24 @@ class Plugin:
             return
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._external_overlay_action_server_socket = server
         try:
             server.bind(str(socket_path))
             self._prepare_external_overlay_socket_file(socket_path, mode=0o600)
             server.listen(8)
             server.settimeout(0.5)
             self._append_bridge_log(f"external overlay action socket listening path={socket_path}")
-            while not self._external_overlay_action_stop.is_set():
+            while not stop.is_set():
                 try:
                     client, _addr = server.accept()
                 except socket.timeout:
                     continue
                 with client:
-                    payload = client.recv(64 * 1024)
+                    client.settimeout(0.5)
+                    try:
+                        payload = client.recv(64 * 1024)
+                    except socket.timeout:
+                        continue
                     if not payload:
                         continue
                     for line in payload.splitlines():
@@ -665,9 +760,12 @@ class Plugin:
                         # them here so playback and selection state stay in one place.
                         self._handle_external_overlay_action(command)
         except OSError as exc:
-            self._append_bridge_log(f"external overlay action socket failed: {exc}")
+            if not stop.is_set():
+                self._append_bridge_log(f"external overlay action socket failed: {exc}")
         finally:
             server.close()
+            if self._external_overlay_action_server_socket is server:
+                self._external_overlay_action_server_socket = None
             try:
                 socket_path.unlink()
             except FileNotFoundError:
@@ -841,18 +939,38 @@ class Plugin:
             )
 
     def _stop_external_overlay(self) -> None:
+        with self._external_overlay_lock:
+            self._external_overlay_visible = False
+            process = getattr(self, "_external_overlay_process", None)
         self._release_external_overlay_input_grab()
-        process = getattr(self, "_external_overlay_process", None)
         if process is None:
             return
         try:
             self._send_external_overlay_command({"type": "quit"}, start_process=False)
         except Exception:
             pass
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
         try:
-            process.terminate()
-        except OSError:
-            pass
+            process.wait(timeout=0.75)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                self._append_bridge_log(
+                    f"external overlay did not exit after kill pid={process.pid}"
+                )
+        finally:
+            with self._external_overlay_lock:
+                if self._external_overlay_process is process:
+                    self._external_overlay_process = None
 
     def _grab_external_overlay_input_devices(self) -> None:
         if self._external_overlay_input_grab_handles or self._external_overlay_input_grab_attempted:
@@ -980,10 +1098,10 @@ class Plugin:
             stop = getattr(self, "_external_overlay_evdev_stop", None)
             if stop is not None:
                 stop.set()
+            thread = getattr(self, "_external_overlay_evdev_thread", None)
             handles = list(getattr(self, "_external_overlay_input_grab_handles", []))
             self._external_overlay_input_grab_handles = []
             self._external_overlay_input_grab_attempted = False
-            self._external_overlay_evdev_thread = None
         for path, name, handle in handles:
             try:
                 if fcntl is not None:
@@ -998,6 +1116,11 @@ class Plugin:
                 pass
         if handles:
             self._append_bridge_log("external overlay input grab released")
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+        with self._external_overlay_lock:
+            if thread is None or not thread.is_alive():
+                self._external_overlay_evdev_thread = None
 
     def _sync_external_overlay_input_grab(self) -> None:
         with self._external_overlay_lock:
@@ -1833,10 +1956,6 @@ def dominant_steam_deck_stick_direction(report: dict[str, int]) -> str | None:
 def eviocgstring(number: int, length: int) -> int:
     # Linux _IOC(_IOC_READ, 'E', number, length)
     return (2 << 30) | (length << 16) | (ord("E") << 8) | number
-
-
-def eviocgname(length: int) -> int:
-    return eviocgstring(0x06, length)
 
 
 def input_device_property(handle: Any, number: int) -> str:

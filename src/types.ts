@@ -51,8 +51,11 @@ interface PlaybackRoute {
 }
 
 export interface DeckSoundpadStatus {
-  version?: string;
   backend_running: boolean;
+  version?: string;
+  restart_running?: boolean;
+  restart_id?: number;
+  restart_completed_id?: number;
   audio: AudioStatus;
   player: PlayerStatus;
   library: LibraryStatus;

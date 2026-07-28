@@ -5,7 +5,7 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import __version__
 from .audio_player import PlaybackManager, select_backend
@@ -40,11 +40,15 @@ class DeckSoundpadApp:
         self.library, self.router, self.player = self._create_runtime_components(self.settings)
         self.logger.info("DeckSoundpad backend initialized version=%s", __version__)
         self._status_cache: dict[str, Any] | None = None
-        self._status_cache_lock = threading.Lock()
+        self._status_commit_lock = threading.RLock()
         self._audio_task_lock = threading.Lock()
         self._audio_task_running = False
-        self._audio_task_name: str | None = None
         self._repair_task_running = False
+        self._repair_done = threading.Event()
+        self._repair_done.set()
+        self._restart_sequence = 0
+        self._active_restart_id: int | None = None
+        self._completed_restart_id = 0
         self._audio_generation = 0
         self._playback_route_lock = threading.Lock()
         self._playback_route_status: AudioStatus | None = None
@@ -66,20 +70,53 @@ class DeckSoundpadApp:
         return library, router, player
 
     def status(self) -> dict[str, Any]:
+        with self._audio_task_lock:
+            generation = self._audio_generation
         with self._runtime_lock:
             audio_status = self.router.healthcheck()
-            self._remember_playback_route_status(audio_status)
-            payload = self._status_payload(audio_status)
-            self._store_status_cache(payload)
-            return payload
+            self._remember_playback_route_status(
+                audio_status,
+                expected_generation=generation,
+            )
+        self.publish_status(audio_status, expected_generation=generation)
+        return self.quick_status()
 
     def quick_status(self) -> dict[str, Any]:
-        with self._status_cache_lock:
-            if self._status_cache is not None:
-                return self._status_cache
-        # Frontend status polling must stay responsive while the first full
-        # PipeWire healthcheck is still running in the startup worker.
-        return self._status_payload(AudioStatus(last_error="Audio status pending", state="pending"))
+        with self._status_commit_lock:
+            payload = dict(self._status_cache) if self._status_cache is not None else None
+            if payload is None:
+                payload = self._pending_status_payload()
+            return self._decorate_restart_status(payload)
+
+    def _pending_status_payload(self) -> dict[str, Any]:
+        payload = Status(
+            backend_running=True,
+            audio=AudioStatus(last_error="Audio status pending", state="pending"),
+            player=PlayerStatus(backend=None),
+            library=LibraryStatus(count=0),
+        ).to_dict()
+        payload["version"] = __version__
+        return payload
+
+    def _decorate_restart_status(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._audio_task_lock:
+            running = self._repair_task_running
+            active_id = self._active_restart_id
+            completed_id = self._completed_restart_id
+        decorated = dict(payload)
+        decorated["restart_running"] = running
+        restart_id = active_id if active_id is not None else completed_id or None
+        if restart_id is None:
+            decorated.pop("restart_id", None)
+        else:
+            decorated["restart_id"] = restart_id
+        decorated["restart_completed_id"] = completed_id
+        if running:
+            decorated["audio"] = AudioStatus(
+                last_error="DeckSoundpad restart started",
+                state="repairing",
+            ).to_dict()
+        return decorated
 
     def _status_payload(self, audio_status: AudioStatus) -> dict[str, Any]:
         player_status = PlayerStatus(
@@ -99,26 +136,45 @@ class DeckSoundpadApp:
         status_payload["playback_route"] = self._playback_route_payload()
         return status_payload
 
-    def _store_status_cache(self, payload: dict[str, Any]) -> None:
-        with self._status_cache_lock:
-            self._status_cache = payload
-
-    def publish_status(self, status: AudioStatus) -> dict[str, Any]:
+    def publish_status(
+        self,
+        status: AudioStatus,
+        *,
+        expected_generation: int | None = None,
+        allow_during_restart: bool = False,
+    ) -> dict[str, Any]:
+        if expected_generation is None:
+            with self._audio_task_lock:
+                expected_generation = self._audio_generation
         with self._runtime_lock:
             payload = self._status_payload(status)
-            self._store_status_cache(payload)
-            return payload
+        with self._status_commit_lock:
+            with self._audio_task_lock:
+                can_commit = expected_generation == self._audio_generation and (
+                    allow_during_restart or not self._repair_task_running
+                )
+            if can_commit:
+                self._status_cache = payload
+            return self._decorate_restart_status(payload)
 
-    def publish_progress_status(self, status: AudioStatus) -> dict[str, Any]:
-        with self._status_cache_lock:
+    def publish_progress_status(
+        self,
+        status: AudioStatus,
+        *,
+        expected_generation: int | None = None,
+    ) -> dict[str, Any]:
+        with self._status_commit_lock:
+            with self._audio_task_lock:
+                generation_matches = (
+                    expected_generation is None
+                    or expected_generation == self._audio_generation
+                )
             cached = dict(self._status_cache) if self._status_cache is not None else None
-        if cached is None:
-            payload = self._status_payload(status)
-        else:
-            payload = cached
-            payload["audio"] = status.to_dict()
-        self._store_status_cache(payload)
-        return payload
+            payload = cached if cached is not None else self._pending_status_payload()
+            if generation_matches:
+                payload["audio"] = status.to_dict()
+                self._status_cache = payload
+            return self._decorate_restart_status(payload)
 
     def list_sounds(self) -> dict[str, Any]:
         with self._runtime_lock:
@@ -226,7 +282,6 @@ class DeckSoundpadApp:
             if self._audio_task_running or self._repair_task_running:
                 return
             self._audio_task_running = True
-            self._audio_task_name = "ensure"
             generation = self._audio_generation
 
         def run() -> None:
@@ -243,10 +298,12 @@ class DeckSoundpadApp:
                         generation == self._audio_generation and not self._repair_task_running
                     )
                     self._audio_task_running = False
-                    self._audio_task_name = None
                 if should_publish:
-                    self._remember_playback_route_status(status)
-                    self.publish_status(status)
+                    self._remember_playback_route_status(
+                        status,
+                        expected_generation=generation,
+                    )
+                    self.publish_status(status, expected_generation=generation)
 
         threading.Thread(target=run, name="decksoundpad-playback-route-check", daemon=True).start()
 
@@ -302,10 +359,21 @@ class DeckSoundpadApp:
             message = status.last_error or "DeckSoundpad mic route is unavailable; repair audio routing"
         raise RuntimeError(message)
 
-    def _remember_playback_route_status(self, status: AudioStatus) -> None:
-        with self._playback_route_lock:
-            self._playback_route_status = status
-            self._playback_route_checked_at = time.monotonic()
+    def _remember_playback_route_status(
+        self,
+        status: AudioStatus,
+        *,
+        expected_generation: int | None = None,
+    ) -> bool:
+        with self._status_commit_lock:
+            if expected_generation is not None:
+                with self._audio_task_lock:
+                    if expected_generation != self._audio_generation:
+                        return False
+            with self._playback_route_lock:
+                self._playback_route_status = status
+                self._playback_route_checked_at = time.monotonic()
+            return True
 
     def _forget_playback_route_status(self) -> None:
         with self._playback_route_lock:
@@ -347,47 +415,122 @@ class DeckSoundpadApp:
             for sound in sounds[:limit]
         ]
 
-    def repair_audio(self) -> dict[str, Any]:
-        return self._start_repair_task().to_dict()
-
-    def _start_repair_task(self) -> AudioStatus:
+    def repair_audio(
+        self,
+        *,
+        before_restart: Callable[[], None] | None = None,
+        after_restart: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        status = self._start_repair_task(
+            before_restart=before_restart,
+            after_restart=after_restart,
+        )
+        response = status.to_dict()
         with self._audio_task_lock:
-            if self._repair_task_running:
-                return AudioStatus(
-                    last_error="DeckSoundpad restart already running",
-                    state="repairing",
-                )
-            self._repair_task_running = True
-            self._audio_generation += 1
+            response["restart_id"] = (
+                self._active_restart_id
+                if self._active_restart_id is not None
+                else self._completed_restart_id
+            )
+        return response
+
+    def _start_repair_task(
+        self,
+        *,
+        before_restart: Callable[[], None] | None = None,
+        after_restart: Callable[[], None] | None = None,
+    ) -> AudioStatus:
+        with self._status_commit_lock:
+            with self._audio_task_lock:
+                if self._repair_task_running:
+                    return AudioStatus(
+                        last_error="DeckSoundpad restart already running",
+                        state="repairing",
+                    )
+                self._repair_task_running = True
+                self._repair_done.clear()
+                self._audio_generation += 1
+                generation = self._audio_generation
+                self._restart_sequence += 1
+                restart_id = self._restart_sequence
+                self._active_restart_id = restart_id
 
         started_status = AudioStatus(
             last_error="DeckSoundpad restart started",
             state="repairing",
         )
-        self.publish_progress_status(started_status)
+        try:
+            self.publish_progress_status(
+                started_status,
+                expected_generation=generation,
+            )
+        except Exception:
+            with self._status_commit_lock:
+                with self._audio_task_lock:
+                    self._repair_task_running = False
+                    self._active_restart_id = None
+                    self._repair_done.set()
+            raise
 
         def run() -> None:
             status = AudioStatus(last_error="DeckSoundpad restart interrupted", state="error")
+            failures: list[str] = []
             try:
                 self.logger.info("DeckSoundpad runtime restart started")
-                status = self._restart_runtime()
-                self.logger.info("DeckSoundpad runtime restart finished status=%s", status.to_dict())
-            except Exception as exc:
-                self.logger.exception("DeckSoundpad runtime restart failed")
-                status = AudioStatus(last_error=f"DeckSoundpad restart failed: {exc}", state="error")
-            finally:
-                self._remember_playback_route_status(status)
+                if before_restart is not None:
+                    try:
+                        before_restart()
+                    except Exception as exc:
+                        self.logger.exception("DeckSoundpad bridge teardown failed")
+                        failures.append(f"bridge teardown failed: {exc}")
                 try:
-                    self.publish_status(status)
+                    status = self._restart_runtime()
+                    self.logger.info(
+                        "DeckSoundpad runtime restart finished status=%s",
+                        status.to_dict(),
+                    )
+                except Exception as exc:
+                    self.logger.exception("DeckSoundpad runtime restart failed")
+                    failures.append(f"runtime restart failed: {exc}")
+                if after_restart is not None:
+                    try:
+                        after_restart()
+                    except Exception as exc:
+                        self.logger.exception("DeckSoundpad bridge reinitialization failed")
+                        failures.append(f"bridge reinitialization failed: {exc}")
+                if failures:
+                    status = AudioStatus(
+                        last_error="DeckSoundpad restart failed: " + "; ".join(failures),
+                        state="error",
+                    )
+            finally:
+                self._remember_playback_route_status(
+                    status,
+                    expected_generation=generation,
+                )
+                try:
+                    self.publish_status(
+                        status,
+                        expected_generation=generation,
+                        allow_during_restart=True,
+                    )
                 except Exception:
                     self.logger.exception("failed to publish DeckSoundpad restart status")
                     try:
-                        self.publish_progress_status(status)
+                        self.publish_progress_status(
+                            status,
+                            expected_generation=generation,
+                        )
                     except Exception:
                         self.logger.exception("failed to publish fallback restart status")
                 finally:
-                    with self._audio_task_lock:
-                        self._repair_task_running = False
+                    with self._status_commit_lock:
+                        with self._audio_task_lock:
+                            self._repair_task_running = False
+                            if self._active_restart_id == restart_id:
+                                self._completed_restart_id = restart_id
+                                self._active_restart_id = None
+                            self._repair_done.set()
 
         threading.Thread(target=run, name="decksoundpad-runtime-restart", daemon=True).start()
         return started_status
@@ -398,8 +541,19 @@ class DeckSoundpadApp:
             new_library, new_router, new_player = self._create_runtime_components(new_settings)
             old_player = self.player
             old_router = self.router
-            self._close_runtime_player(old_player)
-            self._teardown_runtime_router(old_router)
+            cleanup_failures: list[str] = []
+            try:
+                self._close_runtime_player(old_player, strict=True)
+            except Exception as exc:
+                cleanup_failures.append(f"playback cleanup failed: {exc}")
+            try:
+                self._teardown_runtime_router(old_router, strict=True)
+            except Exception as exc:
+                cleanup_failures.append(f"audio route cleanup failed: {exc}")
+            if cleanup_failures:
+                self._close_runtime_player(new_player)
+                self._teardown_runtime_router(new_router)
+                raise RuntimeError("; ".join(cleanup_failures))
             self.settings = new_settings
             self.library = new_library
             self.router = new_router
@@ -410,7 +564,7 @@ class DeckSoundpadApp:
             finally:
                 self.library.scan()
 
-    def _close_runtime_player(self, player: Any) -> None:
+    def _close_runtime_player(self, player: Any, *, strict: bool = False) -> None:
         try:
             close = getattr(player, "close", None)
             if callable(close):
@@ -419,8 +573,10 @@ class DeckSoundpadApp:
                 player.stop_all()
         except Exception:
             self.logger.exception("failed to stop old playback runtime during restart")
+            if strict:
+                raise
 
-    def _teardown_runtime_router(self, router: Any) -> None:
+    def _teardown_runtime_router(self, router: Any, *, strict: bool = False) -> None:
         teardown = getattr(router, "teardown", None)
         if not callable(teardown):
             return
@@ -428,6 +584,14 @@ class DeckSoundpadApp:
             teardown()
         except Exception:
             self.logger.exception("failed to tear down old audio route during restart")
+            if strict:
+                raise
+
+    def close(self) -> None:
+        self._repair_done.wait()
+        with self._runtime_lock:
+            self._close_runtime_player(self.player)
+            self._teardown_runtime_router(self.router)
 
     def _final_audio_status(self, status: AudioStatus) -> AudioStatus:
         if status.state != "unknown":
@@ -451,6 +615,10 @@ class DeckSoundpadApp:
             return self._update_settings(patch)
 
     def _update_settings(self, patch: dict[str, Any]) -> dict[str, Any]:
+        with self._status_commit_lock:
+            with self._audio_task_lock:
+                self._audio_generation += 1
+                generation = self._audio_generation
         previous_mic_passthrough = self.settings.mic_passthrough_enabled
         self.settings = patch_settings(self.settings, patch)
         save_config(self.paths, self.settings)
@@ -468,11 +636,22 @@ class DeckSoundpadApp:
                 status = self.router.ensure()
             else:
                 status = self.router.healthcheck()
-        self._remember_playback_route_status(status)
-        self.publish_status(status)
+        self._remember_playback_route_status(
+            status,
+            expected_generation=generation,
+        )
+        self.publish_status(
+            status,
+            expected_generation=generation,
+            allow_during_restart=True,
+        )
         return self.settings_payload()
 
     def run_healthcheck_cycle(self) -> AudioStatus | None:
+        with self._audio_task_lock:
+            if self._repair_task_running:
+                return None
+            generation = self._audio_generation
         with self._runtime_lock:
             status = self.router.healthcheck()
             route_ready = self._audio_route_ready(
@@ -487,12 +666,12 @@ class DeckSoundpadApp:
             ):
                 self.logger.info("auto repair triggered by healthcheck")
                 status = self.router.repair()
-            with self._audio_task_lock:
-                if self._repair_task_running:
-                    return None
-            self._remember_playback_route_status(status)
-            self.publish_status(status)
-            return status
+            self._remember_playback_route_status(
+                status,
+                expected_generation=generation,
+            )
+        self.publish_status(status, expected_generation=generation)
+        return status
 
     def best_backend_name(self) -> str | None:
         probes = [Path(f"probe{extension}") for extension in self.settings.allowed_extensions]
@@ -519,5 +698,6 @@ def start_healthcheck_loop(app: DeckSoundpadApp, interval_seconds: float = 8.0) 
             app.run_healthcheck_cycle()
 
     thread = threading.Thread(target=run, name="decksoundpad-healthcheck", daemon=True)
+    setattr(stop_event, "_decksoundpad_thread", thread)
     thread.start()
     return stop_event
