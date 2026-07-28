@@ -61,7 +61,10 @@ function requireEvidence(name, description) {
 
 function listPublishableFiles() {
   const output = git(["ls-files", "--cached", "--others", "--exclude-standard"]);
-  return output ? output.split(/\r?\n/).filter(Boolean) : [];
+  if (!output) return [];
+  return output
+    .split(/\r?\n/)
+    .filter((file) => file && fs.existsSync(file) && fs.statSync(file).isFile());
 }
 
 function isTextLike(file) {

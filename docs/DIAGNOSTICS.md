@@ -1,36 +1,24 @@
 # Diagnostics
 
-Use this guide when reporting a DeckSoundpad bug or validating a release
-candidate. It collects enough local state to debug common audio, overlay, and
-library problems without requiring private files or recordings.
+Use this checklist after **Restart DeckSoundpad** and reproducing the problem
+once. Share only what helps explain the bug.
 
-## Before Collecting
-
-1. Open the Decky panel.
-2. Select DeckSoundpad.
-3. Run Restart DeckSoundpad.
-4. Reproduce the issue once.
-5. Redact private data before posting anything publicly.
-
-Do not attach private sound files, voice recordings, credentials, tokens, or
+Never attach private sounds, recordings, credentials, tokens, webhook URLs, or
 unredacted logs.
 
-## Required Environment Details
+## System details
 
 Include:
 
-- DeckSoundpad version shown at the top of the Decky panel, or the commit;
-- install method;
-- Steam Deck model;
-- SteamOS version;
-- Decky Loader version;
-- Game Mode or Desktop Mode;
-- target voice app or game, if relevant;
-- whether `DeckSoundpad mic` was selected in the voice app.
+- DeckSoundpad version or commit and install method
+- Steam Deck model, SteamOS version, and Decky Loader version
+- Game Mode or Desktop Mode
+- The game or voice app tested
+- Whether the app selected `DeckSoundpad mic`
 
-## Audio Routing Commands
+## Audio checks
 
-Run from Desktop Mode Konsole after Restart DeckSoundpad:
+Run these in Desktop Mode Konsole:
 
 ```bash
 pactl info
@@ -40,12 +28,9 @@ pactl list modules short | grep -i decksoundpad
 pactl get-default-source
 ```
 
-For public issues, paste only the relevant lines and redact device names that
-identify personal hardware.
+Paste only relevant lines.
 
-## Log Locations
-
-DeckSoundpad mirrors support logs to:
+## Logs
 
 ```text
 ~/Public/DeckSoundpad/logs/bridge.log
@@ -53,42 +38,26 @@ DeckSoundpad mirrors support logs to:
 ~/Public/DeckSoundpad/logs/external-overlay.log
 ```
 
-Before sharing logs, redact:
+Redact usernames, home-directory paths, private filenames, library paths,
+device names, account names, invite links, chat content, credentials, tokens,
+and private repository URLs.
 
-- local usernames and home-directory paths;
-- private sound filenames and library paths;
-- audio device names that identify personal hardware;
-- account names, invite links, chat content, or private game context;
-- credentials, tokens, webhook URLs, and private repository URLs.
+## Library problems
 
-## Sound Library Checks
+Include the configured library directory, tested file extensions, and whether
+the files or directories are symlinks. Do not attach the original files unless
+a maintainer asks for a small test asset that you may legally share.
 
-For library scanning issues, report:
+## Overlay problems
 
-- configured library directories;
-- whether files are under `~/Music/DeckSoundpad`;
-- file extensions tested;
-- whether files are symlinks;
-- whether the setting to allow symlinks outside library roots is enabled.
+Include the mode, game, selected controller, rear-button mapping, whether the
+button reacts at all, and relevant lines from `bridge.log` and
+`external-overlay.log`.
 
-Do not attach the original sound files unless a maintainer asks for a minimal
-test asset and you have permission to share it.
+Release maintainers should copy final hardware results to
+[hardware validation](HARDWARE_VALIDATION.md).
 
-## External Overlay Checks
+## Security problems
 
-For overlay issues, include:
-
-- Game Mode or Desktop Mode;
-- game tested;
-- which rear button is selected for the overlay;
-- whether that configured button toggles anything;
-- whether Decky panel controls still work;
-- relevant redacted lines from `bridge.log` and `external-overlay.log`.
-
-For release validation, copy the final result into
-`docs/HARDWARE_VALIDATION.md` or the release checklist issue.
-
-## Security-Sensitive Problems
-
-Do not post exploit details publicly. Follow `SECURITY.md` and use private
-vulnerability reporting once the public repository enables it.
+Do not post exploit details publicly. Follow [SECURITY.md](../SECURITY.md) and
+use private vulnerability reporting.

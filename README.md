@@ -1,242 +1,144 @@
 # DeckSoundpad
 
-Steam Deck soundboard controlled from Decky UI. It mixes soundboard playback
-with your real microphone into a single virtual input named `DeckSoundpad mic`.
+DeckSoundpad is a Steam Deck soundboard for Decky Loader. It mixes your sounds
+and real microphone into one virtual input named `DeckSoundpad mic`.
 
-## Status
+The plugin is still being prepared for its first public release. Hardware
+validation on a real Steam Deck is required before compatibility claims are
+final.
 
-DeckSoundpad is being prepared for public open-source release. The core plugin
-is usable, but release candidates should pass the checks in
-[docs/OPEN_SOURCE_READINESS.md](docs/OPEN_SOURCE_READINESS.md) before being
-announced or submitted to a plugin index.
+## What it does
 
-## Features
-
-- Decky panel controls for library refresh, audio repair, microphone settings,
-  overlay-button selection, and controller-input selection.
-- In-game overlay controls for sound selection and playback.
-- PipeWire/PulseAudio route that exposes soundboard output as `DeckSoundpad mic`.
-- Optional real microphone passthrough into the same virtual input.
-- Local sound library scanning from `~/Music/DeckSoundpad`.
-- WAV, FLAC, OGG, and MP3 playback through available SteamOS audio tools.
-- Steam Deck simulation mode for backend development on non-SteamOS machines.
+- Plays WAV, FLAC, OGG, and MP3 files from a local sound library.
+- Opens an in-game sound picker from L4, L5, R4, or R5.
+- Mixes sounds with an optional real microphone.
+- Exposes the mix as `DeckSoundpad mic` for Discord, Steam Voice, games, and
+  browser calls.
+- Rebuilds its audio and controller runtime after sleep, device changes, or
+  routing failures.
 
 ## Requirements
 
-- Steam Deck / SteamOS
+- Steam Deck with SteamOS
 - Decky Loader
-- PipeWire/PulseAudio compatibility tools available on the system
+- PipeWire/PulseAudio compatibility tools
 
-No root filesystem modification, privilege escalation, or `pacman` package
-installation is required. The plugin does not expose a LAN API and does not
-modify the read-only SteamOS root filesystem. Direct `/dev/input` and
-`/dev/hidraw` hotkeys remain optional and work only when the running user already
-has device access. See [docs/ROOT_PERMISSION_RATIONALE.md](docs/ROOT_PERMISSION_RATIONALE.md)
-for the no-root access model.
-Compatibility status and minimum supported version evidence are tracked in
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
+DeckSoundpad does not change the read-only SteamOS filesystem, install system
+packages, or expose a network API. Controller hotkeys need access to the
+matching `/dev/input` or `/dev/hidraw` device. See the
+[no-root rationale](docs/ROOT_PERMISSION_RATIONALE.md) and
+[compatibility notes](docs/COMPATIBILITY.md).
 
-## Current Limitations
+## Install
 
-- Hardware validation is required before public release claims are final.
-- SteamOS, Decky Loader, and PipeWire updates can change audio-routing behavior.
-- Real microphone passthrough depends on the Deck's current input-device names.
-- MP3 playback depends on locally available playback tools.
-- The external overlay and controller-input path are the most hardware-sensitive parts.
-- External-controller hotkeys require the controller/driver to expose rear buttons
-  as Linux `BTN_GRIP*` events; standard controllers without rear buttons cannot
-  use the current L4/L5/R4/R5 mappings.
+Download `DeckSoundpad-vX.Y.Z-full.zip` and its `.sha256` file from a GitHub
+Release. Verify the checksum, then install the ZIP through Decky Loader's
+plugin developer tools.
 
-## Build
+For updates, rollback, manual installation, and removal, read the
+[installation guide](docs/INSTALLATION.md).
 
-Build the Decky frontend bundle:
+## Add sounds
 
-Use Node 22 and pnpm 9.15.9. If you use nvm, run `nvm use` first to match the
-repository's `.nvmrc`.
-
-```bash
-corepack enable
-corepack pnpm i
-corepack pnpm run build
-```
-
-Package the plugin ZIP:
-
-```bash
-corepack pnpm run package
-```
-
-The release artifacts are written to `out/DeckSoundpad-v<version>-full.zip` and
-`out/DeckSoundpad-v<version>-full.zip.sha256`. Packaging requires either
-`shasum` or `sha256sum` so the checksum is always produced.
-This repository is not distributed through npm; `package.json` is marked
-private to keep release distribution on the Decky/GitHub ZIP path.
-
-GitHub also produces the same package from the `Tagged Release Artifact`
-workflow. Push a matching `v<version>` tag, or run the workflow manually for an
-existing tag, and it validates the package before attaching the ZIP and
-checksum to the GitHub Release.
-
-## Install From ZIP
-
-1. Build the ZIP with `corepack pnpm run package`.
-2. Copy the generated ZIP to the Steam Deck.
-3. Install it through Decky Loader's plugin developer tools or extract it into
-   Decky's plugin directory for local testing.
-4. Restart Decky Loader if the plugin does not appear immediately.
-
-Detailed install, update, rollback, and uninstall guidance is maintained in
-[docs/INSTALLATION.md](docs/INSTALLATION.md).
-
-## Add Sounds
-
-Put files in:
+Copy sound files to:
 
 ```text
 ~/Music/DeckSoundpad
 ```
 
-Supported target extensions are WAV, FLAC, OGG, and MP3. Actual playback
-support depends on local availability of `pw-play`, `ffmpeg`, or `mpv`.
-Custom library roots must be real directories owned by the Steam user; the
-privileged backend rejects symlink roots and non-user-owned sound files.
+Open DeckSoundpad and select **Refresh library**. Custom library roots must be
+real directories owned by the Steam user. DeckSoundpad rejects symlink roots
+and files owned by another user.
+
+WAV is the safest format. Compressed formats need a compatible local player,
+such as `ffmpeg`, `mpv`, or `pw-play`.
 
 ## Use
 
-1. Open the Decky panel.
-2. Select Restart DeckSoundpad.
-3. Select `DeckSoundpad mic` in Discord, Steam Voice, a game, or browser voice chat.
-4. In DeckSoundpad Settings, keep Controller input on `Automatic` for the built-in
-   Steam Deck controls, or select a discovered external controller.
-5. Choose L4, L5, R4, or R5 as the overlay button.
-6. Press that button in-game to open the overlay when the Steam user has
-   controller-device access.
+1. Open DeckSoundpad in the Decky panel.
+2. Select **Restart DeckSoundpad**.
+3. Choose `DeckSoundpad mic` in your game or voice app.
+4. Leave Controller input on **Automatic**, or choose a detected controller.
+5. Pick L4, L5, R4, or R5 for the overlay.
 
-`Restart DeckSoundpad` is a full runtime reset: it stops active playback and the
-persistent low-latency stream, removes the old DeckSoundpad audio graph, reloads
-saved settings, recreates the router/player/library components, rebuilds the
-virtual microphone route, and rescans the sound library.
+**Restart DeckSoundpad** is a full reset. It stops playback and controller
+listeners, closes the overlay, rebuilds the audio route, reloads settings,
+rescans sounds, and starts fresh workers.
 
-## Troubleshooting
+External controllers must expose rear buttons as Linux `BTN_GRIP*` events.
+Controllers without rear buttons cannot use the current hotkeys.
 
-- No mic detected: sounds can still play into `DeckSoundpad mic`, but Steam Deck mic passthrough is unavailable.
-- Sound plays but not in Discord: select `DeckSoundpad mic` as Discord's input device.
-- MP3 not supported: install/use a backend with MP3 support, such as `ffmpeg` or `mpv`, when available.
-- Sleep/resume breaks audio: press Restart DeckSoundpad to rebuild the runtime and PipeWire/PulseAudio graph.
-- Logs on Steam Deck are mirrored to `~/Public/DeckSoundpad/logs/`:
-  `bridge.log` for Decky bridge errors and `backend.log` for backend logs.
-- Logs may contain local usernames, paths, and audio device names. Redact them
-  before posting public issues.
+## If something breaks
 
-More cases are covered in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
-Privacy and local data handling are documented in
-[docs/PRIVACY.md](docs/PRIVACY.md).
-Safe diagnostic collection is documented in
-[docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
+Start with **Restart DeckSoundpad**. Then check:
 
-## Steam Deck Audio Check
-
-Before testing voice chat, use the Decky panel's Restart DeckSoundpad action and
-then verify that the virtual input exists from Desktop Mode Konsole:
-
-Verify that the virtual input exists:
-
-```bash
-pactl list sources short | grep decksoundpad
+```text
+~/Public/DeckSoundpad/logs/bridge.log
+~/Public/DeckSoundpad/logs/backend.log
+~/Public/DeckSoundpad/logs/external-overlay.log
 ```
 
-See [docs/STEAMDECK_AUDIO_POC.md](docs/STEAMDECK_AUDIO_POC.md) for pass/fail
-criteria.
+Common fixes:
 
-## Security
+- Missing virtual mic: restart DeckSoundpad, then check
+  `pactl list sources short | grep decksoundpad`.
+- Sound is absent in Discord: select `DeckSoundpad mic` as Discord's input.
+- Audio broke after sleep: restart DeckSoundpad to rebuild the route.
+- MP3 does not play: try WAV or check whether a compressed-audio player is
+  available.
 
-DeckSoundpad no longer ships a standalone LAN web UI or HTTP API. Decky calls
-the backend in-process.
+Read [troubleshooting](docs/TROUBLESHOOTING.md) for more cases. Before opening
+an issue, follow the [diagnostics guide](docs/DIAGNOSTICS.md) and redact local
+usernames, paths, device names, tokens, and private filenames.
 
-Sound libraries are local filesystem paths. Symlinks that escape configured
-library roots are ignored by default. See [SECURITY.md](SECURITY.md) for the
-current security model and reporting process.
+## Build and test
 
-See [docs/PRIVACY.md](docs/PRIVACY.md) for local data and log-sharing
-expectations.
-The local threat model is documented in
-[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
-
-## Development
+Use Node 22 and pnpm 9.15.9:
 
 ```bash
 nvm use
 corepack enable
-corepack pnpm i
-corepack pnpm run typecheck
-corepack pnpm run build
-python3 -m unittest discover backend/tests
-```
-
-Useful commands:
-
-```bash
-corepack pnpm run build
-corepack pnpm run typecheck
-corepack pnpm run test
+corepack pnpm install
 corepack pnpm run check
-python3 -m pip install -r requirements-security.txt
-corepack pnpm run scan:python-security
-corepack pnpm run scan:secrets
 corepack pnpm run package
-corepack pnpm run validate:release
-corepack pnpm run validate:publication
 ```
 
-### macOS Simulation
+The package command writes the ZIP and checksum to `out/`.
 
-Use simulation mode to test the backend, bundled sample library, and Decky-facing
-behavior on macOS without PipeWire, `pactl`, `pw-play`, or Steam Deck audio
-devices.
-
-Run tests or local Decky bridge calls with simulation enabled:
+Backend tests can also run directly:
 
 ```bash
-DECKSOUNDPAD_SIMULATE=1 python3 -m unittest discover backend/tests
+python3 -m unittest discover -s backend/tests -p 'test_*.py'
 ```
 
-Simulation is enabled by:
+Set `DECKSOUNDPAD_SIMULATE=1` to test the backend without SteamOS, PipeWire, or
+Deck hardware. Simulation records playback in memory and does not change the
+production audio path.
 
-```bash
-DECKSOUNDPAD_SIMULATE=1
-```
+## Project docs
 
-In this mode playback is recorded by an in-memory simulated player and status
-reports a simulated `DeckSoundpad mic` route. Production Deck audio routing is
-unchanged when the env var is not set.
+For users:
 
-## Contributing
+- [Installation and removal](docs/INSTALLATION.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Diagnostics](docs/DIAGNOSTICS.md)
+- [Privacy](docs/PRIVACY.md)
+- [Support](SUPPORT.md)
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening larger changes. Public
-release readiness is tracked in
-[docs/OPEN_SOURCE_READINESS.md](docs/OPEN_SOURCE_READINESS.md).
-Publication steps are tracked in
-[docs/PUBLICATION_RUNBOOK.md](docs/PUBLICATION_RUNBOOK.md).
-Architecture and module boundaries are documented in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-The Decky callable contract is documented in
-[docs/BRIDGE_API.md](docs/BRIDGE_API.md).
-Reference repository comparisons are tracked in
-[docs/REFERENCE_REPOS.md](docs/REFERENCE_REPOS.md).
-Release notes should be drafted from
-[docs/RELEASE_NOTES_TEMPLATE.md](docs/RELEASE_NOTES_TEMPLATE.md).
-Support expectations are documented in [SUPPORT.md](SUPPORT.md).
-Maintainer triage and release-owner expectations are documented in
-[docs/MAINTAINER_GUIDE.md](docs/MAINTAINER_GUIDE.md).
-Release screenshots, demo clips, and Decky Store media requirements are
-documented in [docs/RELEASE_ASSETS.md](docs/RELEASE_ASSETS.md).
-Install, update, rollback, and uninstall expectations are documented in
-[docs/INSTALLATION.md](docs/INSTALLATION.md).
+For contributors and maintainers:
 
-Third-party dependency and icon licenses are summarized in
-[docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md), with bundled
-license text in [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
+- [Contributing](CONTRIBUTING.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Decky bridge API](docs/BRIDGE_API.md)
+- [Maintainer guide](docs/MAINTAINER_GUIDE.md)
+- [Release readiness](docs/OPEN_SOURCE_READINESS.md)
+- [Publication runbook](docs/PUBLICATION_RUNBOOK.md)
 
-## License
+Dependency and icon notices are in
+[third-party notices](docs/THIRD_PARTY_NOTICES.md), with full bundled license
+text in [third-party licenses](docs/THIRD_PARTY_LICENSES.md).
 
-MIT
+## Security and license
+
+Report vulnerabilities through the private route in [SECURITY.md], not a
+public issue. DeckSoundpad is licensed under the MIT License.

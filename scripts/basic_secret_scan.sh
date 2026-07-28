@@ -10,7 +10,9 @@ FOUND=0
 echo "Scanning current tracked and untracked source files for high-confidence secret patterns..."
 CURRENT_FILES=()
 while IFS= read -r -d '' file; do
-  CURRENT_FILES+=("$file")
+  if [[ -f "$file" ]]; then
+    CURRENT_FILES+=("$file")
+  fi
 done < <(git ls-files -z --cached --others --exclude-standard)
 
 set +e
