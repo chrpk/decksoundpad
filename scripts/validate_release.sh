@@ -204,6 +204,57 @@ for entry in "${required_entries[@]}"; do
   fi
 done
 
+node - "$ZIP_PATH" <<'NODE'
+const { execFileSync } = require("child_process");
+const path = require("path");
+
+const zipPath = process.argv[2];
+const entries = new Set(
+  execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean),
+);
+const failures = [];
+const linkPattern = /!?\[[^\]]*\]\(([^)]+)\)/g;
+
+for (const entry of entries) {
+  if (!entry.toLowerCase().endsWith(".md")) continue;
+  const markdown = execFileSync("unzip", ["-p", zipPath, entry], {
+    encoding: "utf8",
+  });
+  for (const match of markdown.matchAll(linkPattern)) {
+    let target = match[1].trim();
+    const wrapped = target.match(/^<([^>]+)>/);
+    if (wrapped) {
+      target = wrapped[1];
+    } else {
+      target = target.split(/\s+["']/)[0];
+    }
+    if (!target || target.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+      continue;
+    }
+    target = target.split(/[?#]/, 1)[0];
+    try {
+      target = decodeURIComponent(target);
+    } catch {
+      failures.push(`${entry}: invalid encoded link target ${match[1]}`);
+      continue;
+    }
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entry), target));
+    if (resolved.startsWith("../") || !entries.has(resolved)) {
+      failures.push(`${entry}: missing relative link target ${target}`);
+    }
+  }
+}
+
+if (failures.length > 0) {
+  console.error("Packaged Markdown link validation failed:");
+  for (const failure of failures) console.error(`- ${failure}`);
+  process.exit(1);
+}
+console.log("Packaged Markdown link validation passed.");
+NODE
+
 MANIFEST_JSON="$(unzip -p "$ZIP_PATH" DeckSoundpad/RELEASE_MANIFEST.json)"
 node -e "
 const fs = require('fs');

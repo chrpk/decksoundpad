@@ -1,7 +1,9 @@
 # Support
 
 Run **Restart DeckSoundpad** before reporting a bug. If the problem remains,
-follow [the diagnostics guide](docs/DIAGNOSTICS.md) and open a GitHub issue.
+follow [the diagnostics guide](docs/DIAGNOSTICS.md). For a prerelease build,
+reply through the channel that provided it. Once the repository is public, open
+a GitHub issue.
 
 Include:
 
@@ -24,5 +26,5 @@ Logs can contain usernames, paths, filenames, and device names. Redact them.
 Do not upload private sounds, recordings, credentials, tokens, or unrelated
 log lines. See [privacy](docs/PRIVACY.md) for details.
 
-Do not report vulnerabilities in a public issue. Use the private reporting
-route in [SECURITY.md].
+Do not include vulnerability details in a public issue. Follow [SECURITY.md]
+for the available private-reporting or contact-request process.

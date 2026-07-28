@@ -55,9 +55,9 @@ button reacts at all, and relevant lines from `bridge.log` and
 `external-overlay.log`.
 
 Release maintainers should copy final hardware results to
-[hardware validation](HARDWARE_VALIDATION.md).
+[the repository hardware-validation checklist](https://github.com/chrpk/decksoundpad/blob/main/docs/HARDWARE_VALIDATION.md).
 
 ## Security problems
 
-Do not post exploit details publicly. Follow [SECURITY.md](../SECURITY.md) and
-use private vulnerability reporting.
+Do not post exploit details publicly. Follow [SECURITY.md](../SECURITY.md) for
+the available private-reporting or contact-request process.

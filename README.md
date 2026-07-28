@@ -26,7 +26,7 @@ final.
 DeckSoundpad does not change the read-only SteamOS filesystem, install system
 packages, or expose a network API. Controller hotkeys need access to the
 matching `/dev/input` or `/dev/hidraw` device. See the
-[no-root rationale](docs/ROOT_PERMISSION_RATIONALE.md) and
+[no-root rationale](https://github.com/chrpk/decksoundpad/blob/main/docs/ROOT_PERMISSION_RATIONALE.md) and
 [compatibility notes](docs/COMPATIBILITY.md).
 
 ## Install
@@ -125,14 +125,14 @@ For users:
 - [Privacy](docs/PRIVACY.md)
 - [Support](SUPPORT.md)
 
-For contributors and maintainers:
+Repository-only docs for contributors and maintainers:
 
-- [Contributing](CONTRIBUTING.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Decky bridge API](docs/BRIDGE_API.md)
-- [Maintainer guide](docs/MAINTAINER_GUIDE.md)
-- [Release readiness](docs/OPEN_SOURCE_READINESS.md)
-- [Publication runbook](docs/PUBLICATION_RUNBOOK.md)
+- [Contributing](https://github.com/chrpk/decksoundpad/blob/main/CONTRIBUTING.md)
+- [Architecture](https://github.com/chrpk/decksoundpad/blob/main/docs/ARCHITECTURE.md)
+- [Decky bridge API](https://github.com/chrpk/decksoundpad/blob/main/docs/BRIDGE_API.md)
+- [Maintainer guide](https://github.com/chrpk/decksoundpad/blob/main/docs/MAINTAINER_GUIDE.md)
+- [Release readiness](https://github.com/chrpk/decksoundpad/blob/main/docs/OPEN_SOURCE_READINESS.md)
+- [Publication runbook](https://github.com/chrpk/decksoundpad/blob/main/docs/PUBLICATION_RUNBOOK.md)
 
 Dependency and icon notices are in
 [third-party notices](docs/THIRD_PARTY_NOTICES.md), with full bundled license
@@ -140,5 +140,5 @@ text in [third-party licenses](docs/THIRD_PARTY_LICENSES.md).
 
 ## Security and license
 
-Report vulnerabilities through the private route in [SECURITY.md], not a
-public issue. DeckSoundpad is licensed under the MIT License.
+Follow [SECURITY.md] for vulnerability reports and never put exploit details in
+a public issue. DeckSoundpad is licensed under the MIT License.

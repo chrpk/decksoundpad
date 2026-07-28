@@ -14,14 +14,16 @@ DeckSoundpad is a local Decky Loader plugin:
 - Audio routing is performed through local PipeWire/PulseAudio tools.
 - Sound files are loaded from configured local library directories.
 - Symlinks that escape configured library roots are ignored by default.
-- The Decky `root` flag is requested for local input and overlay integration.
+- The plugin does not request Decky's `root` flag. Direct input access works
+  only when the Steam user already has permission for the device.
 
 The plugin should not require permanent SteamOS root filesystem changes,
 package-manager installs, or network exposure.
 
-The current privileged-behavior rationale is maintained in
-`docs/ROOT_PERMISSION_RATIONALE.md`.
-The local attack-surface review is maintained in `docs/THREAT_MODEL.md`.
+The current access rationale is maintained in the repository's
+[no-root rationale](https://github.com/chrpk/decksoundpad/blob/main/docs/ROOT_PERMISSION_RATIONALE.md).
+The repository also maintains a
+[local threat model](https://github.com/chrpk/decksoundpad/blob/main/docs/THREAT_MODEL.md).
 
 ## Repository Secret Hygiene
 
@@ -61,7 +63,8 @@ before sharing logs in public issues.
 Do not upload sound files or voice recordings unless a maintainer explicitly
 asks for a minimal test asset and you have the right to share it.
 
-The privacy and local data model is documented in `docs/PRIVACY.md`.
+The privacy and local data model is documented in
+[the privacy guide](docs/PRIVACY.md).
 
 ## Reporting A Vulnerability
 
