@@ -6,12 +6,16 @@ This project uses semantic versioning once public releases begin.
 
 ## Unreleased
 
+## 0.1.30 - 2026-07-28
+
 ### Added
 
 - Added Decky settings dropdowns for choosing L4, L5, R4, or R5 as the
   external-overlay hotkey and selecting a discovered controller input device.
   Explicit controller selection persists via a stable evdev selector and routes
   overlay hotkey/navigation events through that device.
+- Added a Deckbrew submission checklist and local validation gate.
+- Added public repository, issue tracker, and project homepage package metadata.
 
 ### Changed
 
@@ -36,16 +40,6 @@ This project uses semantic versioning once public releases begin.
   pnpm releases read project settings.
 - Corrected frontend capability descriptions and clarified why two TypeScript
   versions appear in the third-party development dependency notice.
-
-## 0.1.30 - 2026-07-09
-
-### Added
-
-- Deckbrew submission checklist and local validation gate.
-- Public repository, issue tracker, and project homepage package metadata.
-
-### Changed
-
 - Updated the open-source readiness tracker for the final repository URL and
   remaining publication evidence.
 
