@@ -17,7 +17,7 @@ complete.
 5. Restart Decky Loader if the plugin does not appear.
 6. Open the Decky panel and confirm the version shown at the top of the
    DeckSoundpad panel matches the release notes.
-7. Press Repair audio routing before selecting `DeckSoundpad mic` in a voice
+7. Press Restart DeckSoundpad before selecting `DeckSoundpad mic` in a voice
    app.
 
 Do not install from a generated `dist/` directory alone. The release ZIP also
@@ -34,7 +34,7 @@ contains the Python backend, defaults, public docs, license, and
 4. Install the newer ZIP with the same method used for the previous version.
 5. Restart Decky Loader.
 6. Open DeckSoundpad and check the visible version/build metadata.
-7. Press Repair audio routing after the update.
+7. Press Restart DeckSoundpad after the update.
 
 Your sound files live in configured local library directories, defaulting to
 `~/Music/DeckSoundpad`. Updating the plugin should not delete those files.
@@ -45,7 +45,7 @@ Your sound files live in configured local library directories, defaulting to
    your local audio and overlay checks.
 2. Reinstall the previous ZIP with the same method used for the update.
 3. Restart Decky Loader.
-4. Press Repair audio routing.
+4. Press Restart DeckSoundpad.
 5. If the problem was a compatibility regression, include both version numbers,
    SteamOS version, Decky Loader version, and redacted logs in the bug report.
 

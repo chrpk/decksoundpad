@@ -71,7 +71,7 @@ class FakeBackendApp:
 
     def repair_audio(self) -> dict[str, object]:
         self.repair_calls += 1
-        return AudioStatus(last_error="Audio repair started", state="repairing").to_dict()
+        return AudioStatus(last_error="DeckSoundpad restart started", state="repairing").to_dict()
 
     def settings_payload(self) -> dict[str, object]:
         return self.settings.to_dict()

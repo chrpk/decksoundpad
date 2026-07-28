@@ -15,6 +15,10 @@ This project uses semantic versioning once public releases begin.
 
 ### Changed
 
+- Reworked the recovery action into a full DeckSoundpad runtime restart: active
+  playback and the persistent mixer are stopped, the old audio graph is torn
+  down, settings are reloaded, router/player/library components are recreated,
+  the virtual microphone route is rebuilt, and the sound library is rescanned.
 - Consolidated shared frontend status and error helpers and simplified repeated
   external-overlay ownership and navigation logic.
 - Moved pnpm peer-dependency settings to `pnpm-workspace.yaml`, where current

@@ -28,12 +28,12 @@ The frontend must call only the Python methods listed here.
 | `getStatus()` | `get_status` | none | `DeckSoundpadStatus` | 900 ms |
 | `startBackend()` | `start_backend` | none | `DeckSoundpadStatus` | 1200 ms |
 | `refreshLibrary()` | `refresh_library` | none | `LibraryRefreshResponse` | 2200 ms |
-| `repairAudioAndWait()` | `repair_audio`, then `get_status` polling | none | `DeckSoundpadStatus` | 1500 ms per repair call, 15000 ms overall wait |
+| `restartDeckSoundpadAndWait()` | `repair_audio`, then `get_status` polling | none | `DeckSoundpadStatus` | 1500 ms per restart call, 20000 ms overall wait |
 | `getSettings()` | `get_settings` | none | `Settings` | 1400 ms |
 | `getInputDevices()` | `get_input_devices` | none | `InputDevicesResponse` | 1800 ms |
 | `updateSettings(patch)` | `update_settings` | `Partial<Settings>` | `Settings` | 1600 ms |
 
-`repairAudioAndWait()` is a frontend helper, not a Python method. It calls
+`restartDeckSoundpadAndWait()` is a frontend helper, not a Python method. It calls
 `repair_audio`, reports the immediate status to the caller, then polls
 `get_status` every 500 ms until audio state leaves `starting`, `repairing`, or
 `pending`.
@@ -186,9 +186,14 @@ and relevant UI/tests together.
 background thread, then returns `get_status`. The background startup performs
 audio repair and library refresh once per plugin load.
 
-`repair_audio` starts an asynchronous audio repair task in the backend. The
-Python method returns the current status after submitting the task; the
-frontend helper is responsible for polling until the task settles.
+`repair_audio` is retained as the callable name for compatibility, but now starts
+an asynchronous full runtime restart. The restart stops active playback and the
+persistent low-latency stream, tears down the old DeckSoundpad audio graph,
+reloads persisted settings, recreates the router/player/library components,
+rebuilds the route, and rescans the sound library. It can supersede an in-flight
+route check; stale route-check status is not allowed to overwrite restart
+progress. The Python method returns immediately and the frontend helper polls
+until the task settles.
 
 ## Error And Fallback Semantics
 

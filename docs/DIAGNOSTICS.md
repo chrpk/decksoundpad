@@ -8,7 +8,7 @@ library problems without requiring private files or recordings.
 
 1. Open the Decky panel.
 2. Select DeckSoundpad.
-3. Run Repair audio routing.
+3. Run Restart DeckSoundpad.
 4. Reproduce the issue once.
 5. Redact private data before posting anything publicly.
 
@@ -30,7 +30,7 @@ Include:
 
 ## Audio Routing Commands
 
-Run from Desktop Mode Konsole after Repair audio routing:
+Run from Desktop Mode Konsole after Restart DeckSoundpad:
 
 ```bash
 pactl info

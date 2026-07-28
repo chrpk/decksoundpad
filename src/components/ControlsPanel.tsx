@@ -19,7 +19,10 @@ function overlayControls(button: OverlayHotkeyButton): ControlDetail[] {
 }
 
 const menuControls: ControlDetail[] = [
-  { label: "Repair audio routing", detail: "Rebuilds the virtual mic route after setup, sleep, or game changes." },
+  {
+    label: "Restart DeckSoundpad",
+    detail: "Stops playback, recreates the runtime, rebuilds the virtual mic route, and rescans sounds.",
+  },
   { label: "Real mic passthrough", detail: "Keeps your physical microphone mixed with soundboard playback." },
   { label: "Refresh sounds", detail: "Reloads WAV, FLAC, OGG, and MP3 files from the configured folders." },
   { label: "Voice input", detail: "Select DeckSoundpad mic in Discord, Steam Voice, games, or browser voice chat." },
