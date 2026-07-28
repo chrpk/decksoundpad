@@ -66,6 +66,7 @@ export function useDeckSoundpadData() {
     error,
     refresh,
     setStatus,
+    setSettings,
     setError,
   };
 }

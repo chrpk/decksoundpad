@@ -1,5 +1,10 @@
 import { callable } from "@decky/api";
-import { DeckSoundpadStatus, LibraryRefreshResponse, Settings } from "../types";
+import {
+  DeckSoundpadStatus,
+  InputDevicesResponse,
+  LibraryRefreshResponse,
+  Settings,
+} from "../types";
 import { delay } from "../utils/timing";
 
 const rawGetStatus = callable<[], DeckSoundpadStatus>("get_status");
@@ -7,6 +12,7 @@ const rawStartBackend = callable<[], DeckSoundpadStatus>("start_backend");
 const rawRefreshLibrary = callable<[], LibraryRefreshResponse>("refresh_library");
 const rawRepairAudio = callable<[], DeckSoundpadStatus>("repair_audio");
 const rawGetSettings = callable<[], Settings>("get_settings");
+const rawGetInputDevices = callable<[], InputDevicesResponse>("get_input_devices");
 const rawUpdateSettings = callable<[patch: Partial<Settings>], Settings>("update_settings");
 
 function withTimeout<T>(label: string, promise: Promise<T>, timeoutMs = 1800): Promise<T> {
@@ -45,6 +51,8 @@ export async function repairAudioAndWait(
   return status;
 }
 export const getSettings = () => withTimeout("get_settings", rawGetSettings(), 1400);
+export const getInputDevices = () =>
+  withTimeout("get_input_devices", rawGetInputDevices(), 1800);
 export const updateSettings = (patch: Partial<Settings>) =>
   withTimeout("update_settings", rawUpdateSettings(patch), 1600);
 

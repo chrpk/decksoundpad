@@ -335,6 +335,9 @@ class OverlayWindow(Gtk.Window):
         page_count = int(self.state.get("page_count") or 1)
         total_count = int(self.state.get("total_count") or len(sounds))
         message = str(self.state.get("message") or "DeckSoundpad")
+        overlay_hotkey_button = str(self.state.get("overlay_hotkey_button") or "L5").upper()
+        if overlay_hotkey_button not in {"L4", "L5", "R4", "R5"}:
+            overlay_hotkey_button = "L5"
 
         context.set_operator(cairo.OPERATOR_SOURCE)
         context.set_source_rgba(0, 0, 0, 0)
@@ -367,7 +370,7 @@ class OverlayWindow(Gtk.Window):
         draw_control_chips(
             context,
             [
-                ("L5", "close"),
+                (overlay_hotkey_button, "close"),
                 ("D-pad", "move"),
                 ("A", "play"),
                 ("L1/R1", "page"),
@@ -466,7 +469,7 @@ class OverlayWindow(Gtk.Window):
         )
         draw_text(
             context,
-            "A plays and closes the overlay. L5 closes without playing.",
+            f"A plays and closes the overlay. {overlay_hotkey_button} closes without playing.",
             padding,
             footer_y + 43,
             12,

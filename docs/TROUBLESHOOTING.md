@@ -15,7 +15,7 @@ Use `docs/DIAGNOSTICS.md` for a complete support data checklist.
 | Real mic is not included | Decky setting and status card | Mic passthrough is disabled or no real mic was detected | Enable Real mic passthrough and press Repair audio routing. |
 | Audio breaks after sleep/resume | `backend.log` around resume time | PipeWire module graph was reset | Press Repair audio routing. Keep auto repair enabled unless it causes repeated errors. |
 | External overlay does not appear | `bridge.log` and `external-overlay.log` | Overlay process, socket, or input hook failed | Restart Decky Loader, then retry. Include both logs in bug reports. |
-| L5 overlay hotkey does not respond | `bridge.log` input monitor entries | Input device access differs across SteamOS/controller stacks | Test from Decky panel first. Report SteamOS version, Deck model, and whether the normal Steam user can read the controller device. |
+| Configured controller or overlay hotkey does not respond | Controller input dropdown and `bridge.log` input entries | Device disconnected, access differs, or the controller does not expose `BTN_GRIP*` rear-button events | Reopen Settings and choose the device again or select Automatic. Try another rear-button mapping and report the evdev codes from `bridge.log`. |
 | Library includes unexpected files | Sound list categories | Library directory contains symlinks or nested folders | Symlinks escaping configured roots are ignored by default. Check custom library directories in settings. |
 
 ## Audio Route Check

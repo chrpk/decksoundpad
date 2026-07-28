@@ -11,8 +11,9 @@ root filesystem, install packages, expose a LAN API, or invoke `sudo`,
 
 ## Optional device monitoring
 
-The backend can inspect `/dev/input/event*` and `/dev/hidraw*` for L5/R5 and
-overlay controls. These paths are opportunistic: they are disabled when the
+The backend can inspect `/dev/input/event*` and `/dev/hidraw*` for the
+configured L4/L5/R4/R5 overlay hotkey, R5 previous-sound shortcut, and overlay
+controls. These paths are opportunistic: they are disabled when the
 process is not root or the device cannot be opened, and enabling
 `DECKSOUNDPAD_ENABLE_INPUT_HOTKEY=1` does not grant permissions. Users who need
 these optional hotkeys must grant the normal Steam user access through their

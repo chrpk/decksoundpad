@@ -80,7 +80,8 @@ For overlay issues, include:
 
 - Game Mode or Desktop Mode;
 - game tested;
-- whether L5 toggles anything;
+- which rear button is selected for the overlay;
+- whether that configured button toggles anything;
 - whether Decky panel controls still work;
 - relevant redacted lines from `bridge.log` and `external-overlay.log`.
 
