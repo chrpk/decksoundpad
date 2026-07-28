@@ -24,7 +24,7 @@ public release candidate tested on real Steam Deck hardware.
 
 ## Required Commands
 
-Run from Desktop Mode Konsole after pressing Repair audio routing:
+Run from Desktop Mode Konsole after pressing Restart DeckSoundpad:
 
 ```bash
 pactl info
@@ -44,7 +44,7 @@ rules.
 
 - [ ] `DeckSoundpad mic` appears as `decksoundpad_mic`.
 - [ ] Internal mix sink appears as `decksoundpad_sink`.
-- [ ] Repair audio routing completes without backend error.
+- [ ] Restart DeckSoundpad completes without backend error.
 - [ ] WAV file plays into `DeckSoundpad mic`.
 - [ ] MP3, OGG, or FLAC behavior is recorded.
 - [ ] Real mic passthrough enabled: real mic and soundboard are both audible.
@@ -87,7 +87,7 @@ SteamOS permissions do not expose them.
 
 - [ ] Decky panel loads without root.
 - [ ] Library refresh works without root.
-- [ ] Repair audio routing works without root.
+- [ ] Restart DeckSoundpad works without root.
 - [ ] Sound playback works without root.
 - [ ] `/dev/hidraw*` monitoring works with normal-user permissions, or is documented as unavailable.
 - [ ] `/dev/input/event*` monitoring works with normal-user permissions, or is documented as unavailable.

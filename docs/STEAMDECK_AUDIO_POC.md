@@ -6,7 +6,7 @@ backend and repaired audio routing from the Decky panel.
 For release candidates, record the full result in
 [docs/HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
 
-Open Decky, select DeckSoundpad, and run Repair audio routing. Then run the
+Open Decky, select DeckSoundpad, and run Restart DeckSoundpad. Then run the
 verification commands below from Desktop Mode Konsole on the Steam Deck.
 
 Expected result:
@@ -34,7 +34,7 @@ Pass/fail interpretation:
 - If `pactl info` hangs or times out, the blocker is PipeWire/PulseAudio state,
   not Decky UI.
 - If `pactl list sources short | grep decksoundpad` shows nothing, the virtual
-  source was not created. Press Repair audio routing again and inspect the
+  source was not created. Press Restart DeckSoundpad again and inspect the
   public logs in `~/Public/DeckSoundpad/logs/`.
 - If `DeckSoundpad mic` appears but meters do not react, the virtual-source graph
   needs a different PipeWire implementation.

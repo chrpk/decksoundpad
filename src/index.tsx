@@ -5,7 +5,7 @@ import { BUILD_METADATA } from "./buildInfo";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SoundGrid } from "./components/SoundGrid";
-import { RepairAudioRoutingPanel, StatusCard } from "./components/StatusCard";
+import { RecoveryPanel, StatusCard } from "./components/StatusCard";
 import { useDeckSoundpadData } from "./state/store";
 
 function Content() {
@@ -43,7 +43,7 @@ function Content() {
         loading={loading}
         onRefresh={() => void refresh()}
       />
-      <RepairAudioRoutingPanel onStatus={setStatus} onError={setError} />
+      <RecoveryPanel onStatus={setStatus} onError={setError} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ validation once the public repository exists.
 
 Before opening an issue:
 
-- Run Repair audio routing from the Decky panel.
+- Run Restart DeckSoundpad from the Decky panel.
 - Check `~/Public/DeckSoundpad/logs/bridge.log`.
 - Check `~/Public/DeckSoundpad/logs/backend.log`.
 - Redact local usernames, paths, and audio device names from logs.

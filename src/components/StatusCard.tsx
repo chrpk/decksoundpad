@@ -1,18 +1,17 @@
 import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
 import { useState } from "react";
 import { FaTools } from "react-icons/fa";
-import { repairAudioAndWait, startBackend } from "../api/decky";
+import { restartDeckSoundpadAndWait } from "../api/decky";
 import { DeckSoundpadStatus } from "../types";
 import { errorMessage } from "../utils/errors";
 import { isBackendRunning } from "../utils/status";
-import { delay } from "../utils/timing";
 
 interface StatusCardProps {
   status: DeckSoundpadStatus | null;
   loading: boolean;
 }
 
-interface RepairAudioRoutingPanelProps {
+interface RecoveryPanelProps {
   onStatus: (status: DeckSoundpadStatus) => void;
   onError: (message: string) => void;
 }
@@ -28,7 +27,7 @@ function statusLabel(status: DeckSoundpadStatus | null, loading: boolean): strin
     return "Backend starting";
   }
   if (status.audio.state === "starting" || status.audio.state === "repairing") {
-    return "Audio repair running";
+    return "DeckSoundpad restarting";
   }
   if (status.audio.last_error === "Audio status pending") {
     return "Backend running";
@@ -91,11 +90,11 @@ export function StatusCard({ status, loading }: StatusCardProps) {
   );
 }
 
-export function RepairAudioRoutingPanel({ onStatus, onError }: RepairAudioRoutingPanelProps) {
+export function RecoveryPanel({ onStatus, onError }: RecoveryPanelProps) {
   const [busy, setBusy] = useState(false);
 
   return (
-    <PanelSection title="Audio routing">
+    <PanelSection title="Recovery">
       <PanelSectionRow>
         <ButtonItem
           layout="below"
@@ -103,19 +102,17 @@ export function RepairAudioRoutingPanel({ onStatus, onError }: RepairAudioRoutin
           onClick={async () => {
             setBusy(true);
             try {
-              await startBackend();
-              await delay(700);
-              const nextStatus = await repairAudioAndWait(onStatus);
+              const nextStatus = await restartDeckSoundpadAndWait(onStatus);
               onStatus(nextStatus);
             } catch (caught) {
-              onError(errorMessage(caught, "Repair failed"));
+              onError(errorMessage(caught, "Restart failed"));
             } finally {
               setBusy(false);
             }
           }}
         >
           <FaTools style={{ marginRight: "8px" }} />
-          Repair audio routing
+          Restart DeckSoundpad
         </ButtonItem>
       </PanelSectionRow>
     </PanelSection>

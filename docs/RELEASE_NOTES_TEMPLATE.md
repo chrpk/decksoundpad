@@ -34,7 +34,7 @@ manifest records `generatedAt`, so rebuilds are intentionally build-specific.
 - Soundboard audio reaches `DeckSoundpad mic`: `<yes/no>`
 - Real mic passthrough mixed with soundboard: `<yes/no>`
 - External overlay opens and plays sounds in game mode: `<yes/no>`
-- Sleep/resume recovery verified with Repair audio routing: `<yes/no>`
+- Sleep/resume recovery verified with Restart DeckSoundpad: `<yes/no>`
 
 ## Privilege Review
 

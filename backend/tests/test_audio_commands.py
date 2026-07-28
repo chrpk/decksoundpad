@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -554,6 +554,15 @@ class AudioCommandTests(unittest.TestCase):
 
         mpv_command = MpvBackend().build_command(Path("sound.mp3"), 1.0, target=None)
         self.assertFalse(any(value.startswith("--audio-device=") for value in mpv_command))
+
+    def test_playback_manager_close_stops_playback_and_low_latency_stream(self) -> None:
+        manager = PlaybackManager(Settings(), [RecordingBackend()])
+        manager.low_latency = MagicMock()
+        with patch.object(manager, "stop_all") as stop_all:
+            manager.close()
+
+        stop_all.assert_called_once_with(reason="backend_restart")
+        manager.low_latency.close.assert_called_once_with()
 
     def test_pactl_sample_backend_targets_virtual_mic_sink(self) -> None:
         command = PactlSampleBackend().build_command(Path("sound.wav"), 0.8)

@@ -104,7 +104,7 @@ privileged backend rejects symlink roots and non-user-owned sound files.
 ## Use
 
 1. Open the Decky panel.
-2. Select Repair audio routing.
+2. Select Restart DeckSoundpad.
 3. Select `DeckSoundpad mic` in Discord, Steam Voice, a game, or browser voice chat.
 4. In DeckSoundpad Settings, keep Controller input on `Automatic` for the built-in
    Steam Deck controls, or select a discovered external controller.
@@ -112,12 +112,17 @@ privileged backend rejects symlink roots and non-user-owned sound files.
 6. Press that button in-game to open the overlay when the Steam user has
    controller-device access.
 
+`Restart DeckSoundpad` is a full runtime reset: it stops active playback and the
+persistent low-latency stream, removes the old DeckSoundpad audio graph, reloads
+saved settings, recreates the router/player/library components, rebuilds the
+virtual microphone route, and rescans the sound library.
+
 ## Troubleshooting
 
 - No mic detected: sounds can still play into `DeckSoundpad mic`, but Steam Deck mic passthrough is unavailable.
 - Sound plays but not in Discord: select `DeckSoundpad mic` as Discord's input device.
 - MP3 not supported: install/use a backend with MP3 support, such as `ffmpeg` or `mpv`, when available.
-- Sleep/resume breaks audio: press Repair to rebuild the PipeWire/PulseAudio graph.
+- Sleep/resume breaks audio: press Restart DeckSoundpad to rebuild the runtime and PipeWire/PulseAudio graph.
 - Logs on Steam Deck are mirrored to `~/Public/DeckSoundpad/logs/`:
   `bridge.log` for Decky bridge errors and `backend.log` for backend logs.
 - Logs may contain local usernames, paths, and audio device names. Redact them
@@ -131,7 +136,7 @@ Safe diagnostic collection is documented in
 
 ## Steam Deck Audio Check
 
-Before testing voice chat, use the Decky panel's Repair audio routing action and
+Before testing voice chat, use the Decky panel's Restart DeckSoundpad action and
 then verify that the virtual input exists from Desktop Mode Konsole:
 
 Verify that the virtual input exists:

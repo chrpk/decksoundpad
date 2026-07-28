@@ -357,6 +357,30 @@ class LowLatencyRawMixer:
         with self._lock:
             self._active.clear()
 
+    def close(self) -> None:
+        with self._lock:
+            self._active.clear()
+            self._samples.clear()
+            self._running = False
+            process = self._process
+            thread = self._thread
+            self._process = None
+            self._thread = None
+        if process is not None:
+            terminate_process_groups([process.pid], grace_seconds=0.1)
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                pass
+            for stream in (process.stdin, process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+        if thread is not None and thread is not threading.current_thread() and thread.is_alive():
+            thread.join(timeout=1.0)
+
     def _stop_sound(self, sound_id: str) -> None:
         with self._lock:
             self._active = [sample for sample in self._active if sample.sound_id != sound_id]
@@ -704,6 +728,10 @@ class PlaybackManager:
         self.low_latency.stop_all()
         for playback_id in list(self.playbacks):
             self._stop_playback(playback_id, reason=reason)
+
+    def close(self) -> None:
+        self.stop_all(reason="backend_restart")
+        self.low_latency.close()
 
     def _stop_sound(self, sound_id: str, *, reason: str = "manual_stop") -> None:
         self.low_latency._stop_sound(sound_id)

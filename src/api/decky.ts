@@ -31,22 +31,22 @@ export const getStatus = () => withTimeout("get_status", rawGetStatus(), 900);
 export const startBackend = () => withTimeout("start_backend", rawStartBackend(), 1200);
 export const refreshLibrary = () => withTimeout("refresh_library", rawRefreshLibrary(), 2200);
 const repairAudio = () => withTimeout("repair_audio", rawRepairAudio(), 1500);
-export async function repairAudioAndWait(
+export async function restartDeckSoundpadAndWait(
   onProgress?: (status: DeckSoundpadStatus) => void,
-  timeoutMs = 15000,
+  timeoutMs = 20000,
 ): Promise<DeckSoundpadStatus> {
   let status = await repairAudio();
   onProgress?.(status);
   const deadline = Date.now() + timeoutMs;
-  // Audio repair runs in the backend worker; keep polling until it publishes
-  // a terminal status instead of treating the first "repairing" reply as done.
+  // Restart runs in the backend worker; keep polling until the rebuilt runtime
+  // publishes a terminal status instead of treating the first reply as done.
   while (audioTaskInProgress(status) && Date.now() < deadline) {
     await delay(500);
     status = await getStatus();
     onProgress?.(status);
   }
   if (audioTaskInProgress(status)) {
-    throw new Error("audio repair timed out");
+    throw new Error("DeckSoundpad restart timed out");
   }
   return status;
 }
