@@ -12,7 +12,8 @@ announced or submitted to a plugin index.
 
 ## Features
 
-- Decky panel controls for library refresh, audio repair, and microphone settings.
+- Decky panel controls for library refresh, audio repair, microphone settings,
+  overlay-button selection, and controller-input selection.
 - In-game overlay controls for sound selection and playback.
 - PipeWire/PulseAudio route that exposes soundboard output as `DeckSoundpad mic`.
 - Optional real microphone passthrough into the same virtual input.
@@ -41,7 +42,10 @@ Compatibility status and minimum supported version evidence are tracked in
 - SteamOS, Decky Loader, and PipeWire updates can change audio-routing behavior.
 - Real microphone passthrough depends on the Deck's current input-device names.
 - MP3 playback depends on locally available playback tools.
-- The external overlay and L5 input path are the most hardware-sensitive parts.
+- The external overlay and controller-input path are the most hardware-sensitive parts.
+- External-controller hotkeys require the controller/driver to expose rear buttons
+  as Linux `BTN_GRIP*` events; standard controllers without rear buttons cannot
+  use the current L4/L5/R4/R5 mappings.
 
 ## Build
 
@@ -102,7 +106,11 @@ privileged backend rejects symlink roots and non-user-owned sound files.
 1. Open the Decky panel.
 2. Select Repair audio routing.
 3. Select `DeckSoundpad mic` in Discord, Steam Voice, a game, or browser voice chat.
-4. Press L5 in-game to open the overlay when the Steam user has controller-device access.
+4. In DeckSoundpad Settings, keep Controller input on `Automatic` for the built-in
+   Steam Deck controls, or select a discovered external controller.
+5. Choose L4, L5, R4, or R5 as the overlay button.
+6. Press that button in-game to open the overlay when the Steam user has
+   controller-device access.
 
 ## Troubleshooting
 

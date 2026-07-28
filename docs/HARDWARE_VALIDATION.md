@@ -59,13 +59,20 @@ Result notes:
 ## External Overlay Validation
 
 - [ ] Game launched in Game Mode.
-- [ ] L5 toggles the overlay.
+- [ ] `Automatic` retains the built-in Steam Deck HID/input behavior.
+- [ ] A connected external controller appears in Controller input settings.
+- [ ] Explicit controller selection persists after closing and reopening Decky.
+- [ ] Only the explicitly selected controller toggles and navigates the overlay.
+- [ ] Disconnecting the selected controller is shown as unavailable without
+      silently falling back; choosing `Automatic` restores the fallback.
+- [ ] L4, L5, R4, and R5 can each be selected under DeckSoundpad Settings.
+- [ ] Each selected rear button toggles the overlay.
 - [ ] Overlay appears over the game, not as a Decky modal.
 - [ ] D-pad changes selection.
 - [ ] L1/R1 changes page when enough sounds exist.
 - [ ] A plays selected sound and hides overlay.
-- [ ] L5 closes overlay.
-- [ ] `bridge.log` contains HID report and L5 handling lines.
+- [ ] Configured rear button closes overlay.
+- [ ] `bridge.log` contains HID report and selected-button handling lines.
 - [ ] `external-overlay.log` has no crash or display initialization error.
 
 Game tested:
@@ -84,7 +91,7 @@ SteamOS permissions do not expose them.
 - [ ] Sound playback works without root.
 - [ ] `/dev/hidraw*` monitoring works with normal-user permissions, or is documented as unavailable.
 - [ ] `/dev/input/event*` monitoring works with normal-user permissions, or is documented as unavailable.
-- [ ] L5/R5 direct hotkeys work with normal-user permissions, or are documented as unavailable.
+- [ ] Configured rear-button and R5 previous-sound hotkeys work with normal-user permissions, or are documented as unavailable.
 - [ ] External overlay starts without elevated privileges.
 - [ ] Overlay input grab is skipped safely when device access is unavailable.
 

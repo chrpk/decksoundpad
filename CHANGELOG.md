@@ -6,6 +6,13 @@ This project uses semantic versioning once public releases begin.
 
 ## Unreleased
 
+### Added
+
+- Added Decky settings dropdowns for choosing L4, L5, R4, or R5 as the
+  external-overlay hotkey and selecting a discovered controller input device.
+  Explicit controller selection persists via a stable evdev selector and routes
+  overlay hotkey/navigation events through that device.
+
 ### Changed
 
 - Consolidated shared frontend status and error helpers and simplified repeated

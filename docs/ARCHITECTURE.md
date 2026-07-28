@@ -96,12 +96,17 @@ public logs free of unnecessary sensitive data.
 
 ### External Overlay
 
-1. `main.py` watches Steam Deck HID/input events when permissions allow.
-2. L5 toggles the overlay.
-3. `main.py` starts `external_overlay.py` as the Steam session user when
+1. `main.py` discovers compatible Linux evdev controllers and watches the
+   selected input. `Automatic` retains Steam Deck HID plus compatible evdev
+   monitoring; an explicit controller uses only its normalized evdev events.
+2. The rear button selected in Decky settings (L4, L5, R4, or R5; L5 by
+   default) toggles the overlay.
+3. While an explicit controller is selected, its grabbed evdev stream handles
+   A, D-pad, L1/R1, and the configured rear button while the overlay is visible.
+4. `main.py` starts `external_overlay.py` as the Steam session user when
    possible.
-4. Backend-owned local sockets and bridge calls carry overlay actions.
-5. Overlay commands are limited to selection, paging, playback, and close.
+5. Backend-owned local sockets and bridge calls carry overlay actions.
+6. Overlay commands are limited to selection, paging, playback, and close.
 
 ## Local Files And Logs
 

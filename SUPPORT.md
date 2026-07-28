@@ -29,7 +29,8 @@ For external overlay problems, include:
 
 - Game Mode or Desktop Mode.
 - Game tested.
-- Whether L5 toggles anything.
+- Whether the configured overlay button toggles anything.
+- Which button is selected under Decky > DeckSoundpad > Settings.
 - Relevant lines from `bridge.log` and `external-overlay.log`.
 
 Do not report vulnerabilities in public issues. Follow `SECURITY.md` for

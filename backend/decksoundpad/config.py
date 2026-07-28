@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from .models import OverlapMode
 from .paths import AppPaths, ensure_app_dirs
 from .safe_files import open_regular_file
 
+OverlayHotkeyButton = Literal["l4", "l5", "r4", "r5"]
 VALID_OVERLAP_MODES = {"overlap", "single", "per_sound"}
+VALID_OVERLAY_HOTKEY_BUTTONS = {"l4", "l5", "r4", "r5"}
+OVERLAY_INPUT_DEVICE_PATTERN = re.compile(r"evdev:[0-9a-f]{16}\Z")
 DEFAULT_ALLOWED_EXTENSIONS = [".wav", ".flac", ".ogg", ".mp3"]
 DEFAULT_MAX_PLAYBACK_SECONDS = 30.0
 MAX_PLAYBACK_SECONDS_LIMIT = 600.0
@@ -26,6 +30,8 @@ class Settings:
     mic_passthrough_enabled: bool = True
     auto_repair_on_resume: bool = True
     background_healthcheck_enabled: bool = False
+    overlay_hotkey_button: OverlayHotkeyButton = "l5"
+    overlay_input_device: str = "auto"
     allowed_extensions: list[str] = field(
         default_factory=lambda: DEFAULT_ALLOWED_EXTENSIONS.copy()
     )
@@ -72,6 +78,21 @@ def validate_settings(data: dict[str, Any]) -> Settings:
     if overlap_mode not in VALID_OVERLAP_MODES:
         raise ValueError(f"overlap_mode must be one of {sorted(VALID_OVERLAP_MODES)}")
 
+    overlay_hotkey_button = str(merged["overlay_hotkey_button"]).lower()
+    if overlay_hotkey_button not in VALID_OVERLAY_HOTKEY_BUTTONS:
+        raise ValueError(
+            "overlay_hotkey_button must be one of "
+            f"{sorted(VALID_OVERLAY_HOTKEY_BUTTONS)}"
+        )
+
+    overlay_input_device = str(merged["overlay_input_device"]).lower()
+    if overlay_input_device != "auto" and not OVERLAY_INPUT_DEVICE_PATTERN.fullmatch(
+        overlay_input_device
+    ):
+        raise ValueError(
+            "overlay_input_device must be 'auto' or an evdev device selector"
+        )
+
     max_concurrent_sounds = int(merged["max_concurrent_sounds"])
     if max_concurrent_sounds < 1 or max_concurrent_sounds > 32:
         raise ValueError("max_concurrent_sounds must be between 1 and 32")
@@ -103,6 +124,8 @@ def validate_settings(data: dict[str, Any]) -> Settings:
         mic_passthrough_enabled=bool(merged["mic_passthrough_enabled"]),
         auto_repair_on_resume=bool(merged["auto_repair_on_resume"]),
         background_healthcheck_enabled=bool(merged["background_healthcheck_enabled"]),
+        overlay_hotkey_button=cast(OverlayHotkeyButton, overlay_hotkey_button),
+        overlay_input_device=overlay_input_device,
         allowed_extensions=normalized_extensions,
         allow_symlinks_outside_libraries=bool(
             merged["allow_symlinks_outside_libraries"]

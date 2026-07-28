@@ -6,6 +6,7 @@ from __future__ import annotations
 # runtime setup close to the imports and document the intentional E402 exception.
 # ruff: noqa: E402
 import asyncio
+import hashlib
 
 try:
     import fcntl
@@ -56,32 +57,66 @@ from decksoundpad.safe_files import (
 )
 
 EV_KEY = 0x01
-BTN_TL2 = 0x138
-BTN_TR2 = 0x139
-BTN_TRIGGER_HAPPY1 = 0x2C0
-BTN_TRIGGER_HAPPY40 = 0x2E7
+KEY_MAX = 0x2FF
 BTN_GRIPL = 0x224
 BTN_GRIPR = 0x225
 BTN_GRIPL2 = 0x226
 BTN_GRIPR2 = 0x227
+BTN_SOUTH = 0x130
+BTN_TL = 0x136
+BTN_TR = 0x137
+BTN_TL2 = 0x138
+BTN_TRIGGER_HAPPY1 = 0x2C0
+BTN_TRIGGER_HAPPY40 = 0x2E7
+BTN_DPAD_UP = 0x220
+BTN_DPAD_DOWN = 0x221
+BTN_DPAD_LEFT = 0x222
+BTN_DPAD_RIGHT = 0x223
 INPUT_EVENT_STRUCT = struct.Struct("llHHI")
 INPUT_EVENT_SIZE = INPUT_EVENT_STRUCT.size
-L5_HOTKEY_DEBOUNCE_SECONDS = 0.45
-L5_HOTKEY_CODES = {
-    BTN_GRIPL2,
-    # Diagnostic fallbacks for alternate Steam/Input stacks. These are logged
-    # by name so we can tighten this after seeing real device output.
-    BTN_GRIPL,
-    BTN_TL2,
-    BTN_TRIGGER_HAPPY1,
+HOTKEY_DEBOUNCE_SECONDS = 0.45
+STEAM_DECK_REAR_BUTTON_MASKS = {
+    "l4": 1 << 41,
+    "l5": 1 << 15,
+    "r4": 1 << 42,
+    "r5": 1 << 16,
 }
+STEAM_DECK_REAR_BUTTON_EVENT_CODES = {
+    "l4": frozenset({BTN_GRIPL}),
+    "l5": frozenset({BTN_GRIPL2}),
+    "r4": frozenset({BTN_GRIPR}),
+    "r5": frozenset({BTN_GRIPR2}),
+}
+LEGACY_L5_EVENT_CODES = frozenset(
+    {
+        BTN_GRIPL,
+        BTN_GRIPL2,
+        BTN_TL2,
+        *range(BTN_TRIGGER_HAPPY1, BTN_TRIGGER_HAPPY40 + 1),
+    }
+)
+OVERLAY_HOTKEY_BUTTONS = frozenset(STEAM_DECK_REAR_BUTTON_MASKS)
 KEY_NAMES = {
-    BTN_TL2: "BTN_TL2",
-    BTN_TR2: "BTN_TR2",
-    BTN_GRIPL: "BTN_GRIPL",
-    BTN_GRIPR: "BTN_GRIPR",
-    BTN_GRIPL2: "BTN_GRIPL2",
-    BTN_GRIPR2: "BTN_GRIPR2",
+    BTN_SOUTH: "BTN_SOUTH/A",
+    BTN_TL: "BTN_TL/L1",
+    BTN_TR: "BTN_TR/R1",
+    BTN_DPAD_UP: "BTN_DPAD_UP",
+    BTN_DPAD_DOWN: "BTN_DPAD_DOWN",
+    BTN_DPAD_LEFT: "BTN_DPAD_LEFT",
+    BTN_DPAD_RIGHT: "BTN_DPAD_RIGHT",
+    BTN_GRIPL: "BTN_GRIPL/L4",
+    BTN_GRIPR: "BTN_GRIPR/R4",
+    BTN_GRIPL2: "BTN_GRIPL2/L5",
+    BTN_GRIPR2: "BTN_GRIPR2/R5",
+}
+EVDEV_OVERLAY_ACTIONS = {
+    BTN_SOUTH: "play",
+    BTN_DPAD_UP: "up",
+    BTN_DPAD_DOWN: "down",
+    BTN_DPAD_LEFT: "left",
+    BTN_DPAD_RIGHT: "right",
+    BTN_TL: "page_prev",
+    BTN_TR: "page_next",
 }
 HOTKEY_DIAGNOSTIC_PRESS_LIMIT = 80
 EXTERNAL_OVERLAY_SOUNDS_PER_PAGE = 35
@@ -103,8 +138,7 @@ STEAM_DECK_LBUTTON_DPAD_UP = 0x00000100
 STEAM_DECK_LBUTTON_DPAD_RIGHT = 0x00000200
 STEAM_DECK_LBUTTON_DPAD_LEFT = 0x00000400
 STEAM_DECK_LBUTTON_DPAD_DOWN = 0x00000800
-STEAM_DECK_LBUTTON_L5 = 0x00008000
-STEAM_DECK_LBUTTON_R5 = 0x00010000
+STEAM_DECK_LBUTTON_R5 = STEAM_DECK_REAR_BUTTON_MASKS["r5"]
 STEAM_DECK_HID_DIRECT_SOURCES = {"os-input", "hidraw-input"}
 STEAM_DECK_HID_ACTIONS = (
     (STEAM_DECK_LBUTTON_A, "play"),
@@ -123,6 +157,13 @@ OVERLAY_INPUT_GRAB_NAME_HINTS = (
     "xbox",
     "gamepad",
     "controller",
+    "wireless controller",
+    "dualsense",
+    "dualshock",
+    "playstation",
+    "nintendo",
+    "pro controller",
+    "8bitdo",
     "neptune",
     "jupiter",
     "galileo",
@@ -136,6 +177,26 @@ OVERLAY_INPUT_GRAB_NAME_EXCLUDES = (
     "power button",
     "lid switch",
 )
+
+
+def normalize_overlay_hotkey_button(button: object) -> str:
+    value = str(button or "").lower()
+    return value if value in OVERLAY_HOTKEY_BUTTONS else "l5"
+
+
+def overlay_hotkey_event_codes(
+    button: object,
+    *,
+    include_legacy_l5: bool = False,
+) -> frozenset[int]:
+    normalized = normalize_overlay_hotkey_button(button)
+    if normalized == "l5" and include_legacy_l5:
+        return LEGACY_L5_EVENT_CODES
+    return STEAM_DECK_REAR_BUTTON_EVENT_CODES[normalized]
+
+
+def overlay_hotkey_button_mask(button: object) -> int:
+    return STEAM_DECK_REAR_BUTTON_MASKS[normalize_overlay_hotkey_button(button)]
 
 
 class Plugin:
@@ -158,6 +219,11 @@ class Plugin:
         self._hotkey_thread: threading.Thread | None = None
         self._hidraw_stop = threading.Event()
         self._hidraw_thread: threading.Thread | None = None
+        self._input_restart_thread: threading.Thread | None = None
+        self._input_restart_requested = threading.Event()
+        self._input_restart_request_lock = threading.Lock()
+        self._input_monitor_lock = threading.RLock()
+        self._input_restarts_disabled = False
         self._external_overlay_lock = threading.RLock()
         self._external_overlay_process: subprocess.Popen[Any] | None = None
         self._external_overlay_visible = False
@@ -170,6 +236,8 @@ class Plugin:
         self._external_overlay_action_thread: threading.Thread | None = None
         self._external_overlay_input_grab_handles: list[tuple[str, str, Any]] = []
         self._external_overlay_input_grab_attempted = False
+        self._external_overlay_evdev_stop = threading.Event()
+        self._external_overlay_evdev_thread: threading.Thread | None = None
         self._hidraw_action_last_at: dict[str, float] = {}
         self._hidraw_stick_direction: dict[str, str | None] = {}
         self._hidraw_stick_last_at: dict[str, float] = {}
@@ -186,6 +254,7 @@ class Plugin:
         self._request_backend_start_background()
 
     async def _unload(self) -> None:
+        self._stop_input_monitor_restart_coordinator()
         self._stop_hotkey_monitor()
         self._stop_hidraw_monitor()
         self._stop_external_overlay_action_server()
@@ -232,7 +301,26 @@ class Plugin:
             fallback=self.settings.to_dict(),
         )
 
+    async def get_input_devices(self) -> dict[str, Any]:
+        try:
+            devices = await asyncio.to_thread(discover_overlay_input_devices)
+        except Exception as exc:
+            self._record_bridge_exception("input device discovery", exc)
+            devices = []
+        return {
+            "devices": [
+                {
+                    "id": "auto",
+                    "name": "Automatic",
+                    "path": "",
+                    "label": "Automatic (all compatible controllers)",
+                },
+                *[device for device in devices if device.get("id")],
+            ]
+        }
+
     async def update_settings(self, patch: dict[str, Any]) -> dict[str, Any]:
+        previous_input_device = self._overlay_input_device()
         result = await self._call_backend(
             "settings_update",
             lambda app: app.update_settings(patch),
@@ -243,6 +331,8 @@ class Plugin:
             self.settings = self._backend().settings
         except Exception:
             self.settings = load_config(self.paths)
+        if self._overlay_input_device() != previous_input_device:
+            self._request_input_monitor_restart()
         return result
 
     def _create_backend(self) -> DeckSoundpadApp:
@@ -258,6 +348,17 @@ class Plugin:
                 self.app = self._create_backend()
                 app = self.app
             return app
+
+    def _overlay_hotkey_button(self) -> str:
+        settings = getattr(self._backend(), "settings", self.settings)
+        return normalize_overlay_hotkey_button(
+            getattr(settings, "overlay_hotkey_button", "l5")
+        )
+
+    def _overlay_input_device(self) -> str:
+        settings = getattr(self._backend(), "settings", self.settings)
+        value = str(getattr(settings, "overlay_input_device", "auto")).lower()
+        return value if value == "auto" or value.startswith("evdev:") else "auto"
 
     async def _call_backend(
         self,
@@ -322,14 +423,14 @@ class Plugin:
 
     def _start_hotkey_monitor(self) -> None:
         if not _input_hotkey_monitor_enabled():
-            self._append_bridge_log("L5 OS hotkey monitor disabled: no root input access")
+            self._append_bridge_log("Overlay OS hotkey monitor disabled: no root input access")
             return
         if self._hotkey_thread is not None and self._hotkey_thread.is_alive():
             return
         self._hotkey_stop.clear()
         self._hotkey_thread = threading.Thread(
             target=self._hotkey_monitor_worker,
-            name="decksoundpad-l5-hotkey",
+            name="decksoundpad-overlay-hotkey",
             daemon=True,
         )
         self._hotkey_thread.start()
@@ -340,7 +441,9 @@ class Plugin:
             stop.set()
         thread = getattr(self, "_hotkey_thread", None)
         if thread is not None and thread.is_alive():
-            thread.join(timeout=0.5)
+            thread.join()
+        if thread is None or not thread.is_alive():
+            self._hotkey_thread = None
 
     def _start_hidraw_monitor(self) -> None:
         if not _input_hotkey_monitor_enabled():
@@ -362,7 +465,56 @@ class Plugin:
             stop.set()
         thread = getattr(self, "_hidraw_thread", None)
         if thread is not None and thread.is_alive():
-            thread.join(timeout=0.5)
+            thread.join()
+        if thread is None or not thread.is_alive():
+            self._hidraw_thread = None
+
+    def _request_input_monitor_restart(self) -> None:
+        with self._input_restart_request_lock:
+            if self._input_restarts_disabled:
+                return
+            self._input_restart_requested.set()
+            thread = self._input_restart_thread
+            if thread is not None and thread.is_alive():
+                return
+            thread = threading.Thread(
+                target=self._input_monitor_restart_coordinator,
+                name="decksoundpad-input-restart",
+                daemon=True,
+            )
+            self._input_restart_thread = thread
+            thread.start()
+
+    def _input_monitor_restart_coordinator(self) -> None:
+        while True:
+            self._input_restart_requested.clear()
+            self._restart_input_monitors()
+            with self._input_restart_request_lock:
+                if self._input_restart_requested.is_set() and not self._input_restarts_disabled:
+                    continue
+                self._input_restart_thread = None
+                return
+
+    def _stop_input_monitor_restart_coordinator(self) -> None:
+        with self._input_restart_request_lock:
+            self._input_restarts_disabled = True
+            self._input_restart_requested.clear()
+            thread = self._input_restart_thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join()
+
+    def _restart_input_monitors(self) -> None:
+        with self._input_monitor_lock:
+            self._release_external_overlay_input_grab()
+            self._stop_hotkey_monitor()
+            self._stop_hidraw_monitor()
+            with self._input_restart_request_lock:
+                should_start = not self._input_restarts_disabled
+            if not should_start:
+                return
+            self._start_hotkey_monitor()
+            self._start_hidraw_monitor()
+            self._sync_external_overlay_input_grab()
 
     def _external_overlay_socket_path(self) -> Path:
         return self._external_overlay_runtime_dir() / EXTERNAL_OVERLAY_SOCKET_NAME
@@ -710,49 +862,128 @@ class Plugin:
             self._append_bridge_log("external overlay input grab unavailable: missing fcntl")
             return
 
-        try:
-            event_paths = sorted(Path("/dev/input").glob("event*"))
-        except OSError as exc:
-            self._append_bridge_log(f"external overlay input grab scan failed: {exc}")
-            return
-
+        selector = self._overlay_input_device()
+        devices = filter_overlay_input_devices(discover_overlay_input_devices(), selector)
         grabbed: list[tuple[str, str, Any]] = []
-        for path in event_paths:
+        for device in devices:
+            path_text = device["path"]
+            name = device["name"]
             try:
-                handle = path.open("rb", buffering=0)
+                handle = Path(path_text).open("rb", buffering=0)
+                os.set_blocking(handle.fileno(), False)
             except OSError:
-                continue
-            name = input_device_name(handle)
-            if not should_grab_overlay_input_device(name):
-                try:
-                    handle.close()
-                except OSError:
-                    pass
                 continue
             try:
                 fcntl.ioctl(handle.fileno(), EVIOCGRAB, 1)
             except OSError as exc:
                 self._append_bridge_log(
-                    f"external overlay input grab failed device={path} name={name!r}: {exc}"
+                    f"external overlay input grab failed device={path_text} name={name!r}: {exc}"
                 )
                 try:
                     handle.close()
                 except OSError:
                     pass
                 continue
-            grabbed.append((str(path), name, handle))
+            grabbed.append((path_text, name, handle))
 
         self._external_overlay_input_grab_handles = grabbed
         if grabbed:
             devices = ",".join(f"{path}:{name or 'unknown'}" for path, name, _handle in grabbed)
             self._append_bridge_log(f"external overlay input grab enabled devices={devices}")
+            self._start_external_overlay_evdev_reader()
         else:
             self._append_bridge_log("external overlay input grab found no gamepad event devices")
 
+    def _start_external_overlay_evdev_reader(self) -> None:
+        thread = getattr(self, "_external_overlay_evdev_thread", None)
+        if thread is not None and thread.is_alive():
+            return
+        stop = threading.Event()
+        self._external_overlay_evdev_stop = stop
+        thread = threading.Thread(
+            target=self._external_overlay_evdev_worker,
+            args=(stop,),
+            name="decksoundpad-overlay-evdev",
+            daemon=True,
+        )
+        self._external_overlay_evdev_thread = thread
+        thread.start()
+
+    def _external_overlay_evdev_worker(self, stop: threading.Event) -> None:
+        self._append_bridge_log("external overlay selected evdev reader started")
+        while not stop.is_set() and self._external_overlay_visible:
+            handles = list(self._external_overlay_input_grab_handles)
+            if not handles:
+                break
+            try:
+                readable, _writable, _errored = select.select(
+                    [handle for _path, _name, handle in handles],
+                    [],
+                    [],
+                    0.5,
+                )
+            except (OSError, ValueError):
+                break
+            for handle in readable:
+                device_path = next(
+                    (path for path, _name, candidate in handles if candidate is handle),
+                    "<unknown>",
+                )
+                while not stop.is_set():
+                    try:
+                        data = os.read(handle.fileno(), INPUT_EVENT_SIZE)
+                    except BlockingIOError:
+                        break
+                    except OSError:
+                        stop.set()
+                        break
+                    if len(data) != INPUT_EVENT_SIZE:
+                        break
+                    _sec, _usec, event_type, code, value = INPUT_EVENT_STRUCT.unpack(data)
+                    if event_type == EV_KEY and value == 1:
+                        self._handle_external_overlay_evdev_press(
+                            code,
+                            device_path,
+                            stop,
+                        )
+        self._append_bridge_log("external overlay selected evdev reader stopped")
+
+    def _handle_external_overlay_evdev_press(
+        self,
+        code: int,
+        device_path: str,
+        reader_stop: threading.Event | None = None,
+    ) -> None:
+        with self._external_overlay_lock:
+            if reader_stop is not None and reader_stop.is_set():
+                return
+            hotkey_button = self._overlay_hotkey_button()
+            if code in overlay_hotkey_event_codes(
+                hotkey_button,
+                include_legacy_l5=self._overlay_input_device() == "auto",
+            ):
+                self._handle_overlay_direct_hotkey("evdev-grab")
+                return
+            action = EVDEV_OVERLAY_ACTIONS.get(code)
+            if action is not None:
+                self._handle_debounced_overlay_action(
+                    action,
+                    "evdev-grab",
+                    device_path,
+                )
+                return
+            if hotkey_button != "r5" and code in overlay_hotkey_event_codes("r5"):
+                self._handle_r5_direct_previous_sound("evdev-grab", device_path)
+
     def _release_external_overlay_input_grab(self) -> None:
-        handles = list(getattr(self, "_external_overlay_input_grab_handles", []))
-        self._external_overlay_input_grab_handles = []
-        self._external_overlay_input_grab_attempted = False
+        with self._external_overlay_lock:
+            stop = getattr(self, "_external_overlay_evdev_stop", None)
+            if stop is not None:
+                stop.set()
+            handles = list(getattr(self, "_external_overlay_input_grab_handles", []))
+            self._external_overlay_input_grab_handles = []
+            self._external_overlay_input_grab_attempted = False
+            self._external_overlay_evdev_thread = None
         for path, name, handle in handles:
             try:
                 if fcntl is not None:
@@ -769,10 +1000,11 @@ class Plugin:
             self._append_bridge_log("external overlay input grab released")
 
     def _sync_external_overlay_input_grab(self) -> None:
-        if self._external_overlay_visible:
-            self._grab_external_overlay_input_devices()
-        else:
-            self._release_external_overlay_input_grab()
+        with self._external_overlay_lock:
+            if self._external_overlay_visible:
+                self._grab_external_overlay_input_devices()
+            else:
+                self._release_external_overlay_input_grab()
 
     def _send_external_overlay_command(
         self,
@@ -830,8 +1062,8 @@ class Plugin:
                     "deduped": True,
                 }
             if not is_direct_input and elapsed_since_direct < FRONTEND_AFTER_DIRECT_DEDUP_SECONDS:
-                # The same L5 press can arrive through hidraw and then through the
-                # Decky UI bridge; keep the first toggle and ignore the echo.
+                # The same rear-button press can arrive through hidraw and then
+                # through the Decky UI bridge; keep the first toggle and ignore the echo.
                 self._append_bridge_log(
                     "external overlay duplicate frontend toggle ignored "
                     f"visible={self._external_overlay_visible} source={source}"
@@ -1036,6 +1268,7 @@ class Plugin:
             "page_count": self._external_overlay_page_count(),
             "total_count": len(self._external_overlay_sounds),
             "message": self._external_overlay_message,
+            "overlay_hotkey_button": self._overlay_hotkey_button().upper(),
         }
         if self._external_overlay_visible:
             # Grab before showing state so the game does not also receive the
@@ -1046,6 +1279,11 @@ class Plugin:
             self._sync_external_overlay_input_grab()
 
     def _hidraw_monitor_worker(self) -> None:
+        if self._overlay_input_device() != "auto":
+            self._append_bridge_log(
+                "Steam Deck HID monitor disabled: explicit evdev input device selected"
+            )
+            return
         self._append_bridge_log("Steam Deck HID monitor starting")
         previous_buttons: dict[str, int] = {}
         seen_report_devices: set[str] = set()
@@ -1102,15 +1340,17 @@ class Plugin:
                                 # transitions after that should trigger actions.
                                 continue
                             pressed = buttons & ~previous
-                            if pressed & STEAM_DECK_LBUTTON_L5:
+                            hotkey_button = self._overlay_hotkey_button()
+                            hotkey_mask = overlay_hotkey_button_mask(hotkey_button)
+                            if pressed & hotkey_mask:
                                 self._append_bridge_log(
-                                    "Steam Deck HID L5 press "
-                                    f"device={device_path} buttons_l=0x{buttons_l:08x} "
-                                    f"buttons_h=0x{buttons_h:08x}"
+                                    "Steam Deck HID overlay hotkey press "
+                                    f"button={hotkey_button.upper()} device={device_path} "
+                                    f"buttons_l=0x{buttons_l:08x} buttons_h=0x{buttons_h:08x}"
                                 )
-                                self._handle_l5_direct_hotkey("hidraw-input")
+                                self._handle_overlay_direct_hotkey("hidraw-input")
                                 continue
-                            if pressed & STEAM_DECK_LBUTTON_R5:
+                            if hotkey_button != "r5" and pressed & STEAM_DECK_LBUTTON_R5:
                                 self._append_bridge_log(
                                     "Steam Deck HID R5 press "
                                     f"device={device_path} buttons_l=0x{buttons_l:08x} "
@@ -1134,6 +1374,8 @@ class Plugin:
         self._append_bridge_log("Steam Deck HID monitor stopped")
 
     def _open_hidraw_devices(self) -> list[tuple[str, Any]]:
+        if self._overlay_input_device() != "auto":
+            return []
         handles: list[tuple[str, Any]] = []
         try:
             hidraw_paths = sorted(Path("/dev").glob("hidraw*"))
@@ -1150,31 +1392,50 @@ class Plugin:
             handles.append((str(path), handle))
         return handles
 
-    def _handle_hidraw_overlay_buttons(self, pressed: int, device_path: str) -> None:
-        for mask, action in STEAM_DECK_HID_ACTIONS:
-            if not pressed & mask:
-                continue
+    def _handle_debounced_overlay_action(
+        self,
+        action: str,
+        source: str,
+        device_path: str,
+    ) -> bool:
+        with self._external_overlay_lock:
             now = time.monotonic()
             last_at = self._hidraw_action_last_at.get(action, 0.0)
             if now - last_at < HIDRAW_ACTION_DEBOUNCE_SECONDS:
                 self._append_bridge_log(
-                    "Steam Deck HID overlay input debounced "
-                    f"device={device_path} action={action} mask=0x{mask:08x}"
+                    "Overlay input action debounced "
+                    f"source={source} device={device_path} action={action}"
                 )
-                return
+                return False
             self._hidraw_action_last_at[action] = now
             self._append_bridge_log(
-                "Steam Deck HID overlay input "
-                f"device={device_path} action={action} mask=0x{mask:08x}"
+                "Overlay input action "
+                f"source={source} device={device_path} action={action}"
             )
             try:
                 response = self._handle_external_overlay_input(action)
                 self._append_bridge_log(
-                    "Steam Deck HID overlay input handled "
-                    f"action={action} visible={bool(response.get('visible'))}"
+                    "Overlay input action handled "
+                    f"source={source} action={action} "
+                    f"visible={bool(response.get('visible'))}"
                 )
             except Exception as exc:
-                self._record_bridge_exception(f"handle Steam Deck HID action {action}", exc)
+                self._record_bridge_exception(
+                    f"handle overlay action {action} from {source}",
+                    exc,
+                )
+                return False
+            return True
+
+    def _handle_hidraw_overlay_buttons(self, pressed: int, device_path: str) -> None:
+        for mask, action in STEAM_DECK_HID_ACTIONS:
+            if not pressed & mask:
+                continue
+            self._handle_debounced_overlay_action(
+                action,
+                "hidraw-input",
+                device_path,
+            )
             return
 
     def _handle_hidraw_overlay_sticks(self, report: dict[str, int], device_path: str) -> None:
@@ -1207,18 +1468,20 @@ class Plugin:
             self._record_bridge_exception(f"handle Steam Deck HID stick direction {direction}", exc)
 
     def _hotkey_monitor_worker(self) -> None:
-        self._append_bridge_log("L5 OS hotkey monitor starting")
+        self._append_bridge_log("Overlay OS hotkey monitor starting")
         last_emit = 0.0
         diagnostic_presses = 0
         seen_press_codes: set[tuple[str, int]] = set()
         while not self._hotkey_stop.is_set():
             handles = self._open_input_event_devices()
             if not handles:
-                self._append_bridge_log("L5 OS hotkey monitor found no readable /dev/input/event* devices")
+                self._append_bridge_log(
+                    "Overlay OS hotkey monitor found no readable /dev/input/event* devices"
+                )
                 self._hotkey_stop.wait(5.0)
                 continue
             self._append_bridge_log(
-                "L5 OS hotkey monitor opened devices="
+                "Overlay OS hotkey monitor opened devices="
                 + ",".join(path for path, _handle in handles)
             )
             try:
@@ -1240,39 +1503,52 @@ class Plugin:
                             except BlockingIOError:
                                 break
                             except OSError as exc:
-                                self._append_bridge_log(f"L5 OS hotkey read failed: {exc}")
+                                self._append_bridge_log(f"Overlay OS hotkey read failed: {exc}")
                                 raise
                             if len(data) != INPUT_EVENT_SIZE:
                                 break
                             _sec, _usec, event_type, code, value = INPUT_EVENT_STRUCT.unpack(data)
-                            if event_type == EV_KEY and value == 1:
-                                if diagnostic_presses < HOTKEY_DIAGNOSTIC_PRESS_LIMIT:
-                                    key = (device_path, code)
-                                    if key not in seen_press_codes:
-                                        seen_press_codes.add(key)
-                                        diagnostic_presses += 1
-                                        self._append_bridge_log(
-                                            "L5 OS hotkey observed key press "
-                                            f"device={device_path} code={code} "
-                                            f"hex=0x{code:x} name={KEY_NAMES.get(code, 'unknown')} "
-                                            f"{self._backend_steam_overlay_log_fragment()}"
-                                        )
-                                is_candidate = code in L5_HOTKEY_CODES or (
-                                    BTN_TRIGGER_HAPPY1 <= code <= BTN_TRIGGER_HAPPY40
-                                )
-                                # Alternate controller stacks may expose back buttons
-                                # as trigger-happy keys instead of BTN_GRIPL2.
-                                if is_candidate:
+                            if event_type != EV_KEY or value != 1:
+                                continue
+                            if diagnostic_presses < HOTKEY_DIAGNOSTIC_PRESS_LIMIT:
+                                key = (device_path, code)
+                                if key not in seen_press_codes:
+                                    seen_press_codes.add(key)
+                                    diagnostic_presses += 1
                                     self._append_bridge_log(
-                                        "L5 OS hotkey candidate press "
+                                        "Overlay OS hotkey observed key press "
                                         f"device={device_path} code={code} "
                                         f"hex=0x{code:x} name={KEY_NAMES.get(code, 'unknown')} "
                                         f"{self._backend_steam_overlay_log_fragment()}"
                                     )
-                                    now = time.monotonic()
-                                    if now - last_emit >= L5_HOTKEY_DEBOUNCE_SECONDS:
-                                        last_emit = now
-                                        self._handle_l5_os_hotkey()
+                            hotkey_button = self._overlay_hotkey_button()
+                            if code in overlay_hotkey_event_codes(
+                                hotkey_button,
+                                include_legacy_l5=self._overlay_input_device() == "auto",
+                            ):
+                                self._append_bridge_log(
+                                    "Overlay OS hotkey press "
+                                    f"button={hotkey_button.upper()} device={device_path} "
+                                    f"code={code} hex=0x{code:x} "
+                                    f"name={KEY_NAMES.get(code, 'unknown')} "
+                                    f"{self._backend_steam_overlay_log_fragment()}"
+                                )
+                                now = time.monotonic()
+                                if now - last_emit >= HOTKEY_DEBOUNCE_SECONDS:
+                                    last_emit = now
+                                    self._handle_overlay_direct_hotkey("os-input")
+                            elif self._external_overlay_visible and code in EVDEV_OVERLAY_ACTIONS:
+                                action = EVDEV_OVERLAY_ACTIONS[code]
+                                self._handle_debounced_overlay_action(
+                                    action,
+                                    "os-input",
+                                    device_path,
+                                )
+                            elif hotkey_button != "r5" and code in overlay_hotkey_event_codes("r5"):
+                                self._handle_r5_direct_previous_sound(
+                                    "os-input",
+                                    device_path,
+                                )
             except OSError:
                 self._hotkey_stop.wait(1.0)
             finally:
@@ -1281,42 +1557,45 @@ class Plugin:
                         handle.close()
                     except OSError:
                         pass
-        self._append_bridge_log("L5 OS hotkey monitor stopped")
+        self._append_bridge_log("Overlay OS hotkey monitor stopped")
 
     def _open_input_event_devices(self) -> list[tuple[str, Any]]:
         handles: list[tuple[str, Any]] = []
-        input_dir = Path("/dev/input")
-        try:
-            event_paths = sorted(input_dir.glob("event*"))
-        except OSError as exc:
-            self._append_bridge_log(f"L5 OS hotkey device scan failed: {exc}")
-            return []
-        for path in event_paths:
+        selector = self._overlay_input_device()
+        devices = filter_overlay_input_devices(discover_overlay_input_devices(), selector)
+        if selector != "auto" and not devices:
+            self._append_bridge_log(
+                f"Configured overlay input device unavailable: {selector}"
+            )
+        for device in devices:
+            path_text = device["path"]
             try:
-                handle = path.open("rb", buffering=0)
+                handle = Path(path_text).open("rb", buffering=0)
                 os.set_blocking(handle.fileno(), False)
             except OSError as exc:
-                self._append_bridge_log(f"L5 OS hotkey cannot open {path}: {exc}")
+                self._append_bridge_log(f"Overlay OS hotkey cannot open {path_text}: {exc}")
                 continue
-            handles.append((str(path), handle))
+            handles.append((path_text, handle))
         return handles
 
-    def _handle_l5_os_hotkey(self) -> None:
-        self._handle_l5_direct_hotkey("os-input")
-
-    def _handle_l5_direct_hotkey(self, source: str) -> None:
+    def _handle_overlay_direct_hotkey(self, source: str) -> None:
+        hotkey_button = self._overlay_hotkey_button()
         self._append_bridge_log(
-            f"L5 shortcut detected source={source} {self._backend_steam_overlay_log_fragment()}"
+            f"{hotkey_button.upper()} overlay shortcut detected source={source} "
+            f"{self._backend_steam_overlay_log_fragment()}"
         )
         try:
             response = self._toggle_external_overlay({"source": source})
             self._append_bridge_log(
-                "L5 direct hotkey handled by backend "
-                f"source={source} "
+                "Overlay direct hotkey handled by backend "
+                f"button={hotkey_button.upper()} source={source} "
                 f"visible={bool(response.get('visible'))} sounds_count={response.get('sounds_count', 0)}"
             )
         except Exception as exc:
-            self._record_bridge_exception(f"handle L5 direct hotkey source={source}", exc)
+            self._record_bridge_exception(
+                f"handle {hotkey_button.upper()} overlay hotkey source={source}",
+                exc,
+            )
 
     def _handle_r5_direct_previous_sound(self, source: str, device_path: str) -> None:
         action = "play_previous"
@@ -1551,30 +1830,153 @@ def dominant_steam_deck_stick_direction(report: dict[str, int]) -> str | None:
     return "down" if y > 0 else "up"
 
 
+def eviocgstring(number: int, length: int) -> int:
+    # Linux _IOC(_IOC_READ, 'E', number, length)
+    return (2 << 30) | (length << 16) | (ord("E") << 8) | number
+
+
 def eviocgname(length: int) -> int:
-    # Linux _IOC(_IOC_READ, 'E', 0x06, length)
-    return (2 << 30) | (length << 16) | (ord("E") << 8) | 0x06
+    return eviocgstring(0x06, length)
 
 
-def input_device_name(handle: Any) -> str:
+def input_device_property(handle: Any, number: int) -> str:
     if fcntl is None:
         return ""
     buffer = bytearray(256)
     try:
-        fcntl.ioctl(handle.fileno(), eviocgname(len(buffer)), buffer, True)
+        fcntl.ioctl(handle.fileno(), eviocgstring(number, len(buffer)), buffer, True)
     except OSError:
         return ""
     raw = bytes(buffer).split(b"\x00", 1)[0]
     return raw.decode("utf-8", errors="replace")
 
 
-def should_grab_overlay_input_device(name: str) -> bool:
+def input_device_name(handle: Any) -> str:
+    return input_device_property(handle, 0x06)
+
+
+def input_device_key_capabilities(handle: Any) -> frozenset[int]:
+    if fcntl is None:
+        return frozenset()
+    buffer = bytearray((KEY_MAX + 8) // 8)
+    try:
+        fcntl.ioctl(
+            handle.fileno(),
+            eviocgstring(0x20 + EV_KEY, len(buffer)),
+            buffer,
+            True,
+        )
+    except OSError:
+        return frozenset()
+    return frozenset(
+        code
+        for code in range(KEY_MAX + 1)
+        if buffer[code // 8] & (1 << (code % 8))
+    )
+
+
+def is_overlay_input_device_relevant(name: str, capabilities: frozenset[int]) -> bool:
     lowered = name.lower()
     if not lowered:
         return False
     if any(fragment in lowered for fragment in OVERLAY_INPUT_GRAB_NAME_EXCLUDES):
         return False
-    return any(fragment in lowered for fragment in OVERLAY_INPUT_GRAB_NAME_HINTS)
+    if not any(fragment in lowered for fragment in OVERLAY_INPUT_GRAB_NAME_HINTS):
+        return False
+    navigation_codes = {
+        BTN_SOUTH,
+        BTN_TL,
+        BTN_TR,
+        BTN_DPAD_UP,
+        BTN_DPAD_DOWN,
+        BTN_DPAD_LEFT,
+        BTN_DPAD_RIGHT,
+    }
+    hotkey_codes = set(LEGACY_L5_EVENT_CODES)
+    for codes in STEAM_DECK_REAR_BUTTON_EVENT_CODES.values():
+        hotkey_codes.update(codes)
+    return bool(capabilities & navigation_codes) and bool(capabilities & hotkey_codes)
+
+
+def make_input_device_selector(
+    name: str,
+    phys: str,
+    uniq: str,
+    path: str,
+) -> str | None:
+    del path  # Raw event numbers are intentionally never persisted as identity.
+    normalized_phys = phys.strip()
+    normalized_uniq = uniq.strip()
+    if not normalized_phys and not normalized_uniq:
+        return None
+    identity = "\0".join((name.strip(), normalized_phys, normalized_uniq))
+    digest = hashlib.sha256(identity.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"evdev:{digest}"
+
+
+def deduplicate_overlay_input_devices(
+    devices: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    deduplicated: list[dict[str, str]] = []
+    seen_selectors: set[str] = set()
+    for device in devices:
+        selector = device.get("id", "")
+        if selector and selector in seen_selectors:
+            continue
+        if selector:
+            seen_selectors.add(selector)
+        deduplicated.append(device)
+    return deduplicated
+
+
+def filter_overlay_input_devices(
+    devices: list[dict[str, str]],
+    selector: str,
+) -> list[dict[str, str]]:
+    if selector == "auto":
+        return devices
+    return [device for device in devices if device.get("id") == selector]
+
+
+def discover_overlay_input_devices() -> list[dict[str, str]]:
+    try:
+        event_paths = sorted(Path("/dev/input").glob("event*"))
+    except OSError:
+        return []
+
+    devices: list[dict[str, str]] = []
+    for path in event_paths:
+        try:
+            handle = path.open("rb", buffering=0)
+        except OSError:
+            continue
+        try:
+            name = input_device_name(handle)
+            capabilities = input_device_key_capabilities(handle)
+            if not is_overlay_input_device_relevant(name, capabilities):
+                continue
+            phys = input_device_property(handle, 0x07)
+            uniq = input_device_property(handle, 0x08)
+            path_text = str(path)
+            selector = make_input_device_selector(name, phys, uniq, path_text)
+            devices.append(
+                {
+                    "id": selector or "",
+                    "name": name,
+                    "path": path_text,
+                    "label": f"{name} ({path.name})",
+                }
+            )
+        finally:
+            try:
+                handle.close()
+            except OSError:
+                pass
+    sorted_devices = sorted(
+        devices,
+        key=lambda device: (device["label"].lower(), device["path"]),
+    )
+    return deduplicate_overlay_input_devices(sorted_devices)
 
 
 def clamp_number(value: int, minimum: int, maximum: int) -> int:

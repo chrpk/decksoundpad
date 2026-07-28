@@ -16,6 +16,7 @@ function Content() {
     error,
     refresh,
     setStatus,
+    setSettings,
     setError,
   } = useDeckSoundpadData();
 
@@ -25,10 +26,12 @@ function Content() {
       <StatusCard status={status} loading={loading} />
       <SettingsPanel
         status={status}
+        settings={settings}
         onStatus={setStatus}
+        onSettings={setSettings}
         onError={setError}
       />
-      <ControlsPanel />
+      <ControlsPanel overlayHotkeyButton={settings?.overlay_hotkey_button ?? "l5"} />
       {error ? (
         <PanelSection title="Playback error">
           <PanelSectionRow>{error}</PanelSectionRow>

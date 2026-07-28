@@ -1,4 +1,16 @@
 type OverlapMode = "overlap" | "single" | "per_sound";
+export type OverlayHotkeyButton = "l4" | "l5" | "r4" | "r5";
+
+export interface OverlayInputDevice {
+  id: string;
+  name: string;
+  path: string;
+  label: string;
+}
+
+export interface InputDevicesResponse {
+  devices: OverlayInputDevice[];
+}
 
 interface SoundItem {
   id: string;
@@ -58,6 +70,8 @@ export interface Settings {
   mic_passthrough_enabled: boolean;
   auto_repair_on_resume: boolean;
   background_healthcheck_enabled: boolean;
+  overlay_hotkey_button: OverlayHotkeyButton;
+  overlay_input_device: string;
   allowed_extensions: string[];
   allow_symlinks_outside_libraries: boolean;
 }

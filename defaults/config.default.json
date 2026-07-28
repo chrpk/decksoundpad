@@ -8,6 +8,8 @@
   "mic_passthrough_enabled": true,
   "auto_repair_on_resume": true,
   "background_healthcheck_enabled": false,
+  "overlay_hotkey_button": "l5",
+  "overlay_input_device": "auto",
   "allowed_extensions": [".wav", ".flac", ".ogg", ".mp3"],
   "allow_symlinks_outside_libraries": false
 }

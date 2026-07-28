@@ -40,6 +40,8 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(settings.library_dirs, ["~/Music/DeckSoundpad"])
             self.assertEqual(settings.max_playback_seconds, 30.0)
             self.assertFalse(settings.background_healthcheck_enabled)
+            self.assertEqual(settings.overlay_hotkey_button, "l5")
+            self.assertEqual(settings.overlay_input_device, "auto")
             self.assertTrue(paths.config_file.exists())
 
     def test_config_patch_validation(self) -> None:
@@ -52,12 +54,29 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(healthcheck_patched.background_healthcheck_enabled)
         time_patched = patch_settings(settings, {"max_playback_seconds": 45})
         self.assertEqual(time_patched.max_playback_seconds, 45.0)
+        for button in ("l4", "l5", "r4", "r5"):
+            with self.subTest(button=button):
+                hotkey_patched = patch_settings(settings, {"overlay_hotkey_button": button})
+                self.assertEqual(hotkey_patched.overlay_hotkey_button, button)
+        auto_device = patch_settings(settings, {"overlay_input_device": "auto"})
+        self.assertEqual(auto_device.overlay_input_device, "auto")
+        selected_device = patch_settings(
+            settings,
+            {"overlay_input_device": "evdev:0123456789abcdef"},
+        )
+        self.assertEqual(selected_device.overlay_input_device, "evdev:0123456789abcdef")
         with self.assertRaises(ValueError):
             patch_settings(settings, {"master_volume": 2.0})
+        with self.assertRaises(ValueError):
+            patch_settings(settings, {"overlay_input_device": "/dev/input/event4"})
+        with self.assertRaises(ValueError):
+            patch_settings(settings, {"overlay_hotkey_button": "menu"})
         with self.assertRaises(ValueError):
             patch_settings(settings, {"max_playback_seconds": 0})
         with self.assertRaises(ValueError):
             patch_settings(settings, {"unknown": True})
+        with self.assertRaises(ValueError):
+            patch_settings(settings, {"overlay_hotkey_button": "a"})
 
     def test_legacy_single_mode_config_migrates_to_overlap_with_time_limit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,9 +98,12 @@ class ConfigTests(unittest.TestCase):
     def test_config_save_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = self.paths(Path(tmp))
-            settings = Settings(master_volume=0.9)
+            selector = "evdev:0123456789abcdef"
+            settings = Settings(master_volume=0.9, overlay_input_device=selector)
             save_config(paths, settings)
-            self.assertEqual(load_config(paths).master_volume, 0.9)
+            loaded = load_config(paths)
+            self.assertEqual(loaded.master_volume, 0.9)
+            self.assertEqual(loaded.overlay_input_device, selector)
 
     def test_public_log_dir_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

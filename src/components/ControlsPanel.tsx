@@ -1,19 +1,22 @@
 import { PanelSection, PanelSectionRow } from "@decky/ui";
 import type { ReactNode } from "react";
 import { FaFolderOpen, FaGamepad, FaMicrophone, FaTools } from "react-icons/fa";
+import { OverlayHotkeyButton } from "../types";
 
 interface ControlDetail {
   label: string;
   detail: string;
 }
 
-const overlayControls: ControlDetail[] = [
-  { label: "L5", detail: "Open or close the in-game overlay." },
-  { label: "D-pad", detail: "Move the highlighted sound." },
-  { label: "A", detail: "Play the highlighted sound and return to the game." },
-  { label: "L1 / R1", detail: "Move to the previous or next sound page." },
-  { label: "Touch / click", detail: "Play a sound tile directly." },
-];
+function overlayControls(button: OverlayHotkeyButton): ControlDetail[] {
+  return [
+    { label: button.toUpperCase(), detail: "Open or close the in-game overlay." },
+    { label: "D-pad", detail: "Move the highlighted sound." },
+    { label: "A", detail: "Play the highlighted sound and return to the game." },
+    { label: "L1 / R1", detail: "Move to the previous or next sound page." },
+    { label: "Touch / click", detail: "Play a sound tile directly." },
+  ];
+}
 
 const menuControls: ControlDetail[] = [
   { label: "Repair audio routing", detail: "Rebuilds the virtual mic route after setup, sleep, or game changes." },
@@ -22,12 +25,20 @@ const menuControls: ControlDetail[] = [
   { label: "Voice input", detail: "Select DeckSoundpad mic in Discord, Steam Voice, games, or browser voice chat." },
 ];
 
-export function ControlsPanel() {
+interface ControlsPanelProps {
+  overlayHotkeyButton: OverlayHotkeyButton;
+}
+
+export function ControlsPanel({ overlayHotkeyButton }: ControlsPanelProps) {
   return (
     <PanelSection title="Controls">
       <PanelSectionRow>
         <div style={panelStackStyle}>
-          <GuideGroup icon={<FaGamepad />} title="In-game overlay" items={overlayControls} />
+          <GuideGroup
+            icon={<FaGamepad />}
+            title="In-game overlay"
+            items={overlayControls(overlayHotkeyButton)}
+          />
           <GuideGroup icon={<FaTools />} title="Decky menu" items={menuControls} />
           <div style={noteStyle}>
             <FaFolderOpen style={noteIconStyle} />

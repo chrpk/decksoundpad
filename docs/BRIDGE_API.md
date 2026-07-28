@@ -30,6 +30,7 @@ The frontend must call only the Python methods listed here.
 | `refreshLibrary()` | `refresh_library` | none | `LibraryRefreshResponse` | 2200 ms |
 | `repairAudioAndWait()` | `repair_audio`, then `get_status` polling | none | `DeckSoundpadStatus` | 1500 ms per repair call, 15000 ms overall wait |
 | `getSettings()` | `get_settings` | none | `Settings` | 1400 ms |
+| `getInputDevices()` | `get_input_devices` | none | `InputDevicesResponse` | 1800 ms |
 | `updateSettings(patch)` | `update_settings` | `Partial<Settings>` | `Settings` | 1600 ms |
 
 `repairAudioAndWait()` is a frontend helper, not a Python method. It calls
@@ -125,6 +126,31 @@ Library roots must be real directories owned by the Steam user. The backend
 rejects symlink roots and non-user-owned sound files while running as the
 normal Decky/Steam user.
 
+## Input Device Response
+
+`get_input_devices` discovers compatible Linux evdev controller nodes. The
+response always begins with the `auto` option and then contains currently
+readable controllers:
+
+```ts
+interface InputDevicesResponse {
+  devices: Array<{
+    id: "auto" | `evdev:${string}`;
+    name: string;
+    path: string;
+    label: string;
+  }>;
+}
+```
+
+Persisted `evdev:` IDs are derived from the kernel-reported name, physical
+location, and unique ID, never from a raw `/dev/input/eventN` number. Nodes
+without a physical location or unique ID may still participate in `Automatic`
+mode, but are not offered for explicit persistence. Discovery also requires
+controller navigation plus supported rear-button capabilities before a node can
+be monitored or grabbed. An unavailable configured device remains selected in
+the UI until the user chooses another device or `Automatic`.
+
 ## Settings Response
 
 `get_settings` returns the full backend settings payload. `update_settings`
@@ -142,6 +168,8 @@ interface Settings {
   mic_passthrough_enabled: boolean;
   auto_repair_on_resume: boolean;
   background_healthcheck_enabled: boolean;
+  overlay_hotkey_button: "l4" | "l5" | "r4" | "r5";
+  overlay_input_device: "auto" | `evdev:${string}`;
   allowed_extensions: string[];
   allow_symlinks_outside_libraries: boolean;
 }
