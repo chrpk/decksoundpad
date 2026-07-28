@@ -592,6 +592,8 @@ class PlaybackManager:
         self.backends = list(backends or default_backends())
         self.logger = logger or logging.getLogger("decksoundpad.playback")
         self.playbacks: dict[str, Playback] = {}
+        self._playback_timers: dict[str, threading.Timer] = {}
+        self._playback_timers_lock = threading.Lock()
         self.low_latency = LowLatencyRawMixer(
             self.logger.getChild("low_latency"),
             paths=paths,
@@ -725,6 +727,7 @@ class PlaybackManager:
         raise RuntimeError("playback failed: " + "; ".join(errors))
 
     def stop_all(self, *, reason: str = "manual_stop") -> None:
+        self._cancel_all_playback_timeouts()
         self.low_latency.stop_all()
         for playback_id in list(self.playbacks):
             self._stop_playback(playback_id, reason=reason)
@@ -740,6 +743,7 @@ class PlaybackManager:
                 self._stop_playback(playback_id, reason=reason)
 
     def _stop_playback(self, playback_id: str, *, reason: str = "manual_stop") -> None:
+        self._cancel_playback_timeout(playback_id)
         if playback_id.startswith("ll_"):
             if self.low_latency._stop_playback(playback_id):
                 self.logger.info(
@@ -774,10 +778,39 @@ class PlaybackManager:
             args=(playback_id,),
         )
         timer.daemon = True
+        with self._playback_timers_lock:
+            previous = self._playback_timers.pop(playback_id, None)
+            self._playback_timers[playback_id] = timer
+        if previous is not None:
+            previous.cancel()
         timer.start()
 
     def _stop_playback_due_to_time_limit(self, playback_id: str) -> None:
+        with self._playback_timers_lock:
+            self._playback_timers.pop(playback_id, None)
         self._stop_playback(playback_id, reason="time_limit")
+
+    def _cancel_playback_timeout(self, playback_id: str) -> None:
+        with self._playback_timers_lock:
+            timer = self._playback_timers.pop(playback_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _cancel_all_playback_timeouts(self) -> None:
+        with self._playback_timers_lock:
+            timers = list(self._playback_timers.values())
+            self._playback_timers.clear()
+        for timer in timers:
+            timer.cancel()
+        current = threading.current_thread()
+        for timer in timers:
+            if timer is current:
+                continue
+            try:
+                timer.join(timeout=0.2)
+            except RuntimeError:
+                # A concurrent close can observe a timer just before start().
+                pass
 
     def _collect_finished(self) -> None:
         for playback_id, playback in list(self.playbacks.items()):
@@ -799,6 +832,7 @@ class PlaybackManager:
                 )
                 self._wait_and_close(playback.processes)
                 self.playbacks.pop(playback_id, None)
+                self._cancel_playback_timeout(playback_id)
 
     def _spawn(self, command: list[str] | Pipeline) -> list[subprocess.Popen[bytes]]:
         env = playback_env()

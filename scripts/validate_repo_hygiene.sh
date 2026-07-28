@@ -40,7 +40,6 @@ required_files=(
   "docs/OPEN_SOURCE_READINESS.md"
   "docs/PRIVACY.md"
   "docs/PUBLICATION_RUNBOOK.md"
-  "docs/REFERENCE_REPOS.md"
   "docs/REPOSITORY_SETTINGS.md"
   "docs/RELEASE_ASSETS.md"
   "docs/RELEASE_NOTES_TEMPLATE.md"

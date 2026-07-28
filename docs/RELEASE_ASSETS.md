@@ -60,9 +60,9 @@ Use predictable, lowercase names if assets are committed:
 If assets are attached only to a release, keep the same base names.
 
 Committed screenshots and demo clips are repository or GitHub Release assets,
-not runtime plugin files. `scripts/package_plugin.sh` packages Markdown docs
-only, and `corepack pnpm run validate:release` rejects `docs/assets/` or docs
-media files inside the plugin ZIP.
+not runtime plugin files. The package includes only selected user, compatibility,
+privacy, and license Markdown files. `corepack pnpm run validate:release` rejects
+`docs/assets/` or documentation media inside the plugin ZIP.
 
 ## Validation Record
 

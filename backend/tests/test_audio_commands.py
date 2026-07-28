@@ -212,6 +212,30 @@ class AudioCommandTests(unittest.TestCase):
     def test_audio_detect_real_mic_excludes_decksoundpad(self) -> None:
         self.assertFalse(source_is_real_mic(MIC_NAME))
 
+    def test_audio_router_teardown_reports_unload_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = FakeRunner(
+                {
+                    ("pactl", "-f", "json", "list", "modules"): RunResult(
+                        0,
+                        (
+                            '[{"index":42,"name":"module-null-sink",'
+                            f'"argument":"sink_name={SINK_NAME}"}}]'
+                        ),
+                        "",
+                    ),
+                    ("pactl", "unload-module", "42"): RunResult(
+                        1,
+                        "",
+                        "module is busy",
+                    ),
+                }
+            )
+            router = AudioRouter(temp_paths(Path(tmp)), Settings(), runner)
+
+            with self.assertRaisesRegex(RuntimeError, "module is busy"):
+                router.teardown()
+
     def test_audio_router_prefers_configured_real_mic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sources = (
@@ -563,6 +587,19 @@ class AudioCommandTests(unittest.TestCase):
 
         stop_all.assert_called_once_with(reason="backend_restart")
         manager.low_latency.close.assert_called_once_with()
+
+    def test_playback_manager_close_cancels_timeout_threads(self) -> None:
+        manager = PlaybackManager(Settings(), [RecordingBackend()])  # type: ignore[arg-type]
+        manager.low_latency = MagicMock()
+        timer = MagicMock()
+        with patch("decksoundpad.audio_player.threading.Timer", return_value=timer):
+            manager._schedule_playback_timeout("pb-1")
+            manager.close()
+
+        timer.start.assert_called_once_with()
+        timer.cancel.assert_called_once_with()
+        timer.join.assert_called_once_with(timeout=0.2)
+        self.assertEqual(manager._playback_timers, {})  # type: ignore[attr-defined]
 
     def test_pactl_sample_backend_targets_virtual_mic_sink(self) -> None:
         command = PactlSampleBackend().build_command(Path("sound.wav"), 0.8)

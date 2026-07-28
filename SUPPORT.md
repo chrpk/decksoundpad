@@ -1,37 +1,30 @@
 # Support
 
-Use GitHub issues for reproducible bugs, feature requests, and release
-validation once the public repository exists.
+Run **Restart DeckSoundpad** before reporting a bug. If the problem remains,
+follow [the diagnostics guide](docs/DIAGNOSTICS.md). For a prerelease build,
+reply through the channel that provided it. Once the repository is public, open
+a GitHub issue.
 
-Before opening an issue:
+Include:
 
-- Run Restart DeckSoundpad from the Decky panel.
-- Check `~/Public/DeckSoundpad/logs/bridge.log`.
-- Check `~/Public/DeckSoundpad/logs/backend.log`.
-- Redact local usernames, paths, and audio device names from logs.
-- Do not upload private sound files or voice recordings.
+- DeckSoundpad version and install method
+- Steam Deck model, SteamOS version, and Decky Loader version
+- Game Mode or Desktop Mode
+- The app or game you tested
+- What you expected and what happened
+- Relevant lines from `bridge.log`, `backend.log`, or `external-overlay.log`
 
-Privacy and local data handling are documented in `docs/PRIVACY.md`.
-Safe diagnostic collection is documented in `docs/DIAGNOSTICS.md`.
+For audio problems, say whether this command shows `decksoundpad_mic`:
 
-For audio routing problems, include:
+```bash
+pactl list sources short | grep decksoundpad
+```
 
-- DeckSoundpad version or commit.
-- Installation source.
-- Steam Deck model.
-- SteamOS version.
-- Decky Loader version.
-- Whether `pactl list sources short | grep decksoundpad` shows
-  `decksoundpad_mic`.
-- Whether the target voice app selected `DeckSoundpad mic`.
+For overlay problems, include the selected controller and rear button.
 
-For external overlay problems, include:
+Logs can contain usernames, paths, filenames, and device names. Redact them.
+Do not upload private sounds, recordings, credentials, tokens, or unrelated
+log lines. See [privacy](docs/PRIVACY.md) for details.
 
-- Game Mode or Desktop Mode.
-- Game tested.
-- Whether the configured overlay button toggles anything.
-- Which button is selected under Decky > DeckSoundpad > Settings.
-- Relevant lines from `bridge.log` and `external-overlay.log`.
-
-Do not report vulnerabilities in public issues. Follow `SECURITY.md` for
-security-sensitive reports.
+Do not include vulnerability details in a public issue. Follow [SECURITY.md]
+for the available private-reporting or contact-request process.

@@ -36,19 +36,27 @@ export async function restartDeckSoundpadAndWait(
   timeoutMs = 20000,
 ): Promise<DeckSoundpadStatus> {
   let status = await repairAudio();
+  const restartId = status.restart_id;
   onProgress?.(status);
   const deadline = Date.now() + timeoutMs;
-  // Restart runs in the backend worker; keep polling until the rebuilt runtime
-  // publishes a terminal status instead of treating the first reply as done.
-  while (audioTaskInProgress(status) && Date.now() < deadline) {
+  // Restart runs in the backend worker. A terminal status is accepted only
+  // after the exact restart operation requested above has completed.
+  while (Date.now() < deadline) {
+    if (restartId !== undefined) {
+      if (
+        status.restart_running !== true &&
+        (status.restart_completed_id ?? 0) >= restartId
+      ) {
+        return status;
+      }
+    } else if (!audioTaskInProgress(status)) {
+      return status;
+    }
     await delay(500);
     status = await getStatus();
     onProgress?.(status);
   }
-  if (audioTaskInProgress(status)) {
-    throw new Error("DeckSoundpad restart timed out");
-  }
-  return status;
+  throw new Error("DeckSoundpad restart timed out");
 }
 export const getSettings = () => withTimeout("get_settings", rawGetSettings(), 1400);
 export const getInputDevices = () =>

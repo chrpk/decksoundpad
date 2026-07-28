@@ -48,7 +48,7 @@ function statusLabel(status: DeckSoundpadStatus | null, loading: boolean): strin
     return "No real microphone detected";
   }
   if (status.audio.state === "needs_repair" || !status.audio.loopback_exists) {
-    return "Needs repair";
+    return "Needs restart";
   }
   return status.audio.state ?? "Ready";
 }

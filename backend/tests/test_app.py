@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -310,7 +310,6 @@ class AppTests(unittest.TestCase):
         self.app.router = old_router  # type: ignore[assignment]
         self.app.player = old_player  # type: ignore[assignment]
         self.app._audio_task_running = True
-        self.app._audio_task_name = "ensure"
 
         with (
             patch("decksoundpad.app.load_config", return_value=Settings()),
@@ -337,6 +336,148 @@ class AppTests(unittest.TestCase):
         self.assertEqual(new_router.ensure_calls, 1)
         self.assertEqual(new_library.scan_calls, 1)
         self.assertEqual(final_status["state"], "ready")
+
+    def test_quick_status_stays_repairing_when_stale_ready_status_is_published(self) -> None:
+        restart_started = threading.Event()
+        allow_restart = threading.Event()
+
+        def restart() -> AudioStatus:
+            restart_started.set()
+            self.assertTrue(allow_restart.wait(timeout=1.0))
+            return AudioStatus(state="ready")
+
+        with patch.object(self.app, "_restart_runtime", side_effect=restart):
+            response = self.app.repair_audio()
+            self.assertTrue(restart_started.wait(timeout=1.0))
+            self.app.publish_status(AudioStatus(state="ready"))
+            status = self.app.quick_status()
+            allow_restart.set()
+            self.assertTrue(self.app._repair_done.wait(timeout=1.0))
+
+        self.assertEqual(response["state"], "repairing")
+        self.assertTrue(status["restart_running"])
+        self.assertEqual(status["audio"]["state"], "repairing")
+        final_status = self.app.quick_status()
+        self.assertFalse(final_status["restart_running"])
+        self.assertEqual(final_status["restart_completed_id"], response["restart_id"])
+
+    def test_settings_update_status_wins_over_stale_restart_completion(self) -> None:
+        restart_started = threading.Event()
+        allow_restart = threading.Event()
+
+        def restart() -> AudioStatus:
+            restart_started.set()
+            self.assertTrue(allow_restart.wait(timeout=1.0))
+            return AudioStatus(state="ready")
+
+        settings_status = AudioStatus(
+            last_error="settings runtime status",
+            state="needs_repair",
+        )
+        with (
+            patch.object(self.app, "_restart_runtime", side_effect=restart),
+            patch("decksoundpad.app.AudioRouter.healthcheck", return_value=settings_status),
+        ):
+            self.app.repair_audio()
+            self.assertTrue(restart_started.wait(timeout=1.0))
+            self.app.update_settings({"master_volume": 0.8})
+            self.assertFalse(self.app._repair_done.is_set())
+            allow_restart.set()
+            self.assertTrue(self.app._repair_done.wait(timeout=1.0))
+
+        with self.app._audio_task_lock:
+            self.assertFalse(self.app._repair_task_running)
+        final_status = self.app.quick_status()
+        self.assertEqual(final_status["audio"]["state"], "needs_repair")
+        self.assertEqual(final_status["audio"]["last_error"], "settings runtime status")
+        self.assertEqual(self.app._playback_route_status, settings_status)
+
+    def test_initial_progress_publication_failure_does_not_wedge_restart(self) -> None:
+        with patch.object(
+            self.app,
+            "publish_progress_status",
+            side_effect=RuntimeError("cache unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cache unavailable"):
+                self.app.repair_audio()
+
+        with self.app._audio_task_lock:
+            self.assertFalse(self.app._repair_task_running)
+        self.assertTrue(self.app._repair_done.is_set())
+
+    def test_cleanup_failure_keeps_old_runtime_and_reports_error(self) -> None:
+        old_router = RestartTrackingRouter()
+        old_player = RestartTrackingPlayer()
+        old_player.close = MagicMock(side_effect=RuntimeError("player close failed"))
+        new_router = RestartTrackingRouter()
+        new_player = RestartTrackingPlayer()
+        new_library = RestartTrackingLibrary()
+        self.app.router = old_router  # type: ignore[assignment]
+        self.app.player = old_player  # type: ignore[assignment]
+
+        with (
+            patch("decksoundpad.app.load_config", return_value=Settings()),
+            patch("decksoundpad.app.SoundLibrary", return_value=new_library),
+            patch("decksoundpad.app.AudioRouter", return_value=new_router),
+            patch("decksoundpad.app.PlaybackManager", return_value=new_player),
+        ):
+            self.app.repair_audio()
+            self.assertTrue(self.app._repair_done.wait(timeout=1.0))
+
+        self.assertIs(self.app.router, old_router)
+        self.assertIs(self.app.player, old_player)
+        self.assertEqual(self.app.quick_status()["audio"]["state"], "error")
+        self.assertIn(
+            "player close failed",
+            self.app.quick_status()["audio"]["last_error"],
+        )
+
+    def test_close_waits_for_runtime_restart_before_closing_resources(self) -> None:
+        restart_started = threading.Event()
+        allow_restart = threading.Event()
+
+        def restart() -> AudioStatus:
+            restart_started.set()
+            self.assertTrue(allow_restart.wait(timeout=1.0))
+            return AudioStatus(state="ready")
+
+        with (
+            patch.object(self.app, "_restart_runtime", side_effect=restart),
+            patch.object(self.app, "_close_runtime_player") as close_player,
+            patch.object(self.app, "_teardown_runtime_router") as teardown_router,
+        ):
+            self.app.repair_audio()
+            self.assertTrue(restart_started.wait(timeout=1.0))
+            close_thread = threading.Thread(target=self.app.close)
+            close_thread.start()
+            time.sleep(0.02)
+            close_player.assert_not_called()
+            allow_restart.set()
+            close_thread.join(timeout=1.0)
+
+        self.assertFalse(close_thread.is_alive())
+        close_player.assert_called_once_with(self.app.player)
+        teardown_router.assert_called_once_with(self.app.router)
+
+    def test_audio_repair_runs_bridge_reinitialization_after_runtime_failure(self) -> None:
+        events: list[str] = []
+        with patch.object(self.app, "_restart_runtime", side_effect=RuntimeError("boom")):
+            response = self.app.repair_audio(
+                before_restart=lambda: events.append("before"),
+                after_restart=lambda: events.append("after"),
+            )
+            self.assertEqual(response["state"], "repairing")
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                with self.app._audio_task_lock:
+                    if not self.app._repair_task_running:
+                        break
+                time.sleep(0.01)
+
+        self.assertEqual(events, ["before", "after"])
+        self.assertFalse(self.app._repair_task_running)
+        self.assertEqual(self.app.quick_status()["audio"]["state"], "error")
+        self.assertIn("runtime restart failed: boom", self.app.quick_status()["audio"]["last_error"])
 
     def test_audio_repair_clears_restart_flag_when_status_publication_fails(self) -> None:
         router = RestartTrackingRouter()

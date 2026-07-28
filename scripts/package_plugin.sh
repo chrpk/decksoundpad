@@ -46,11 +46,22 @@ trap cleanup EXIT
 corepack pnpm build
 
 mkdir -p "$PLUGIN_DIR"
-cp LICENSE README.md SECURITY.md SUPPORT.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md plugin.json package.json main.py "$PLUGIN_DIR/"
+cp LICENSE README.md SECURITY.md SUPPORT.md CHANGELOG.md plugin.json package.json main.py "$PLUGIN_DIR/"
 cp -R dist "$PLUGIN_DIR/dist"
 cp -R defaults "$PLUGIN_DIR/defaults"
 mkdir -p "$PLUGIN_DIR/docs"
-cp docs/*.md "$PLUGIN_DIR/docs/"
+runtime_docs=(
+  "COMPATIBILITY.md"
+  "DIAGNOSTICS.md"
+  "INSTALLATION.md"
+  "PRIVACY.md"
+  "THIRD_PARTY_LICENSES.md"
+  "THIRD_PARTY_NOTICES.md"
+  "TROUBLESHOOTING.md"
+)
+for doc in "${runtime_docs[@]}"; do
+  cp "docs/$doc" "$PLUGIN_DIR/docs/"
+done
 
 mkdir -p "$PLUGIN_DIR/backend"
 cp backend/__init__.py "$PLUGIN_DIR/backend/__init__.py"

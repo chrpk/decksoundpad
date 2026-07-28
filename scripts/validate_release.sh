@@ -178,8 +178,6 @@ required_entries=(
   "DeckSoundpad/README.md"
   "DeckSoundpad/SECURITY.md"
   "DeckSoundpad/SUPPORT.md"
-  "DeckSoundpad/CONTRIBUTING.md"
-  "DeckSoundpad/CODE_OF_CONDUCT.md"
   "DeckSoundpad/CHANGELOG.md"
   "DeckSoundpad/RELEASE_MANIFEST.json"
   "DeckSoundpad/plugin.json"
@@ -190,25 +188,10 @@ required_entries=(
   "DeckSoundpad/backend/decksoundpad/app.py"
   "DeckSoundpad/backend/decksoundpad/audio_router.py"
   "DeckSoundpad/backend/decksoundpad/audio_player.py"
-  "DeckSoundpad/docs/ARCHITECTURE.md"
-  "DeckSoundpad/docs/BRIDGE_API.md"
   "DeckSoundpad/docs/COMPATIBILITY.md"
-  "DeckSoundpad/docs/DECKBREW_SUBMISSION_CHECKLIST.md"
-  "DeckSoundpad/docs/DECKBREW_SUBMISSION_EVIDENCE.md"
   "DeckSoundpad/docs/DIAGNOSTICS.md"
-  "DeckSoundpad/docs/EXTERNAL_OVERLAY_POC.md"
   "DeckSoundpad/docs/INSTALLATION.md"
-  "DeckSoundpad/docs/MAINTAINER_GUIDE.md"
-  "DeckSoundpad/docs/OPEN_SOURCE_READINESS.md"
-  "DeckSoundpad/docs/HARDWARE_VALIDATION.md"
   "DeckSoundpad/docs/PRIVACY.md"
-  "DeckSoundpad/docs/PUBLICATION_RUNBOOK.md"
-  "DeckSoundpad/docs/REFERENCE_REPOS.md"
-  "DeckSoundpad/docs/RELEASE_ASSETS.md"
-  "DeckSoundpad/docs/RELEASE_NOTES_TEMPLATE.md"
-  "DeckSoundpad/docs/ROOT_PERMISSION_RATIONALE.md"
-  "DeckSoundpad/docs/STEAMDECK_AUDIO_POC.md"
-  "DeckSoundpad/docs/THREAT_MODEL.md"
   "DeckSoundpad/docs/THIRD_PARTY_LICENSES.md"
   "DeckSoundpad/docs/THIRD_PARTY_NOTICES.md"
   "DeckSoundpad/docs/TROUBLESHOOTING.md"
@@ -220,6 +203,57 @@ for entry in "${required_entries[@]}"; do
     exit 1
   fi
 done
+
+node - "$ZIP_PATH" <<'NODE'
+const { execFileSync } = require("child_process");
+const path = require("path");
+
+const zipPath = process.argv[2];
+const entries = new Set(
+  execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean),
+);
+const failures = [];
+const linkPattern = /!?\[[^\]]*\]\(([^)]+)\)/g;
+
+for (const entry of entries) {
+  if (!entry.toLowerCase().endsWith(".md")) continue;
+  const markdown = execFileSync("unzip", ["-p", zipPath, entry], {
+    encoding: "utf8",
+  });
+  for (const match of markdown.matchAll(linkPattern)) {
+    let target = match[1].trim();
+    const wrapped = target.match(/^<([^>]+)>/);
+    if (wrapped) {
+      target = wrapped[1];
+    } else {
+      target = target.split(/\s+["']/)[0];
+    }
+    if (!target || target.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+      continue;
+    }
+    target = target.split(/[?#]/, 1)[0];
+    try {
+      target = decodeURIComponent(target);
+    } catch {
+      failures.push(`${entry}: invalid encoded link target ${match[1]}`);
+      continue;
+    }
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entry), target));
+    if (resolved.startsWith("../") || !entries.has(resolved)) {
+      failures.push(`${entry}: missing relative link target ${target}`);
+    }
+  }
+}
+
+if (failures.length > 0) {
+  console.error("Packaged Markdown link validation failed:");
+  for (const failure of failures) console.error(`- ${failure}`);
+  process.exit(1);
+}
+console.log("Packaged Markdown link validation passed.");
+NODE
 
 MANIFEST_JSON="$(unzip -p "$ZIP_PATH" DeckSoundpad/RELEASE_MANIFEST.json)"
 node -e "
