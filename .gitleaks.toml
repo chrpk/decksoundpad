@@ -1,0 +1,5 @@
+title = "DeckSoundpad Gitleaks Configuration"
+
+[extend]
+useDefault = true
+

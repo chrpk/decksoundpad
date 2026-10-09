@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">DeckSoundpad</title>
+  <defs>
+    <linearGradient id="l-bg" x1="0" y1="0.00" x2="0" y2="512.00" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1a1c33"/>
+      <stop offset="1" stop-color="#0b0c17"/>
+    </linearGradient>
+    <linearGradient id="l-edge" x1="0" y1="0.00" x2="0" y2="512.00" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.03"/>
+    </linearGradient>
+    <linearGradient id="l-lit" x1="0" y1="424.96" x2="0" y2="87.04" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22e3f5"/>
+      <stop offset="0.55" stop-color="#7b61ff"/>
+      <stop offset="1" stop-color="#ff4fb0"/>
+    </linearGradient>
+    <linearGradient id="l-sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="l-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="11.83"/>
+    </filter>
+  </defs>
+  <rect x="0.00" y="0.00" width="512.00" height="512.00" rx="115.20" fill="url(#l-bg)"/>
+  <rect x="1.54" y="1.54" width="508.93" height="508.93" rx="113.66" fill="none" stroke="url(#l-edge)" stroke-width="3.07"/>
+  <g fill="#ffffff" fill-opacity="0.075"><rect x="87.04" y="176.59" width="69.27" height="69.27" rx="16.63"/><rect x="87.04" y="87.04" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="87.04" width="69.27" height="69.27" rx="16.63"/><rect x="355.69" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="355.69" y="176.59" width="69.27" height="69.27" rx="16.63"/><rect x="355.69" y="87.04" width="69.27" height="69.27" rx="16.63"/></g><g fill="url(#l-lit)" opacity="0.55" filter="url(#l-glow)"><rect x="87.04" y="355.69" width="69.27" height="69.27" rx="16.63"/><rect x="87.04" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="355.69" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="176.59" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="87.04" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="355.69" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="176.59" width="69.27" height="69.27" rx="16.63"/><rect x="355.69" y="355.69" width="69.27" height="69.27" rx="16.63"/></g><g fill="url(#l-lit)"><rect x="87.04" y="355.69" width="69.27" height="69.27" rx="16.63"/><rect x="87.04" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="355.69" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="176.59" width="69.27" height="69.27" rx="16.63"/><rect x="176.59" y="87.04" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="355.69" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="266.14" width="69.27" height="69.27" rx="16.63"/><rect x="266.14" y="176.59" width="69.27" height="69.27" rx="16.63"/><rect x="355.69" y="355.69" width="69.27" height="69.27" rx="16.63"/></g>
+</svg>

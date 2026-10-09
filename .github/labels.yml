@@ -1,0 +1,43 @@
+- name: bug
+  color: d73a4a
+  description: Something is broken or regressed.
+
+- name: documentation
+  color: 0075ca
+  description: Documentation, examples, or release notes.
+
+- name: enhancement
+  color: a2eeef
+  description: New behavior or improvement request.
+
+- name: security
+  color: b60205
+  description: Security-sensitive hardening or reporting workflow.
+
+- name: audio-routing
+  color: 5319e7
+  description: PipeWire, PulseAudio, virtual mic, or real mic passthrough.
+
+- name: steam-deck
+  color: 0e8a16
+  description: Steam Deck hardware, SteamOS, or Decky Loader behavior.
+
+- name: external-overlay
+  color: fbca04
+  description: Overlay window, hotkeys, input capture, or navigation.
+
+- name: sound-library
+  color: c5def5
+  description: Sound scanning, file formats, categories, or local library paths.
+
+- name: packaging
+  color: 1d76db
+  description: Build, ZIP packaging, checksums, or release artifacts.
+
+- name: dependencies
+  color: 0366d6
+  description: Dependency updates, lockfile changes, or dependency policy.
+
+- name: good-first-issue
+  color: 7057ff
+  description: Small, well-scoped contribution.
