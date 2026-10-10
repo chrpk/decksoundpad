@@ -6,6 +6,13 @@ This project uses semantic versioning once public releases begin.
 
 ## Unreleased
 
+## 1.5.1 - 2026-10-10
+
+### Changed
+
+- Reformatted the Python backend with ruff and the frontend with Prettier.
+  No behavior changes.
+
 ## 1.5.0 - 2026-10-10
 
 ### Added
