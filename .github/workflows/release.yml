@@ -1,0 +1,136 @@
+name: Tagged Release Artifact
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Optional vX.Y.Z tag to package. Defaults to the selected ref.
+        required: false
+        type: string
+      publish_release:
+        description: Attach the ZIP and checksum to the GitHub Release.
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tagged-artifact:
+    name: Validate And Publish Tagged Release Artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select requested tag
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag != ''
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [[ ! "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Manual release tag must look like vX.Y.Z or vX.Y.Z-prerelease: $REQUESTED_TAG" >&2
+            exit 1
+          fi
+          git fetch --force --tags
+          git checkout --detach "refs/tags/$REQUESTED_TAG"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-security.txt
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Python security tooling
+        run: python -m pip install --disable-pip-version-check --requirement requirements-security.txt
+
+      - name: Scan Python security
+        run: corepack pnpm run scan:python-security
+
+      - name: Read package version
+        run: |
+          VERSION="$(node -p 'require("./package.json").version')"
+          echo "DECKSOUNDPAD_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "DECKSOUNDPAD_TAG=v$VERSION" >> "$GITHUB_ENV"
+
+      - name: Validate tagged release package
+        env:
+          DECKSOUNDPAD_REQUIRE_CLEAN_TREE: "1"
+          DECKSOUNDPAD_REQUIRE_TAG: "1"
+        run: corepack pnpm run validate:release
+
+      - name: Publish GitHub release assets
+        if: github.event_name == 'push' || github.event.inputs.publish_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ZIP_PATH="out/DeckSoundpad-v${DECKSOUNDPAD_VERSION}-full.zip"
+          CHECKSUM_PATH="${ZIP_PATH}.sha256"
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" != "$DECKSOUNDPAD_TAG" ]]; then
+            echo "Workflow tag ${GITHUB_REF_NAME} does not match package version tag ${DECKSOUNDPAD_TAG}" >&2
+            exit 1
+          fi
+
+          if gh release view "$DECKSOUNDPAD_TAG" >/dev/null 2>&1; then
+            gh release upload "$DECKSOUNDPAD_TAG" "$ZIP_PATH" "$CHECKSUM_PATH" --clobber
+          else
+            gh release create "$DECKSOUNDPAD_TAG" "$ZIP_PATH" "$CHECKSUM_PATH" \
+              --verify-tag \
+              --title "DeckSoundpad $DECKSOUNDPAD_TAG" \
+              --generate-notes
+          fi
+
+      - name: Write package summary
+        run: |
+          {
+            echo "### DeckSoundpad release package"
+            echo
+            echo "- Tag: \`${DECKSOUNDPAD_TAG}\`"
+            echo "- ZIP: \`DeckSoundpad-v${DECKSOUNDPAD_VERSION}-full.zip\`"
+            echo "- Checksum: \`DeckSoundpad-v${DECKSOUNDPAD_VERSION}-full.zip.sha256\`"
+            echo
+            echo '```'
+            cat "out/DeckSoundpad-v${DECKSOUNDPAD_VERSION}-full.zip.sha256"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: decksoundpad-tagged-release-${{ github.ref_name }}
+          path: |
+            out/DeckSoundpad-v${{ env.DECKSOUNDPAD_VERSION }}-full.zip
+            out/DeckSoundpad-v${{ env.DECKSOUNDPAD_VERSION }}-full.zip.sha256
+          if-no-files-found: error
+          retention-days: 30

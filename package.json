@@ -1,0 +1,62 @@
+{
+  "name": "decksoundpad",
+  "version": "1.5.2",
+  "description": "Decky Loader soundboard that mixes sounds with the real microphone into a virtual mic.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "rollup -c",
+    "package": "scripts/package_plugin.sh",
+    "watch": "rollup -c -w",
+    "test": "python3 -m unittest discover backend/tests",
+    "test:backend": "python3 -m unittest discover backend/tests",
+    "typecheck": "tsc --noEmit",
+    "check": "corepack pnpm run typecheck && corepack pnpm run build && corepack pnpm run test",
+    "labels:sync": "bash scripts/sync_labels.sh",
+    "licenses:generate": "bash scripts/generate_third_party_licenses.sh",
+    "notices:generate": "bash scripts/generate_third_party_notices.sh",
+    "scan:python-security": "bash scripts/validate_python_security.sh",
+    "scan:secrets": "bash scripts/basic_secret_scan.sh",
+    "validate:licenses": "bash scripts/validate_license_notices.sh",
+    "validate:repo": "bash scripts/validate_repo_hygiene.sh",
+    "validate:deckbrew": "bash scripts/validate_deckbrew_submission.sh",
+    "validate:source-archive": "bash scripts/validate_source_archive.sh",
+    "validate:publication": "bash scripts/validate_publication_readiness.sh",
+    "validate:release": "bash scripts/validate_release.sh"
+  },
+  "keywords": [
+    "decky",
+    "steam-deck",
+    "soundboard",
+    "pipewire",
+    "microphone"
+  ],
+  "author": "DeckSoundpad contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrpk/decksoundpad.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chrpk/decksoundpad/issues"
+  },
+  "homepage": "https://github.com/chrpk/decksoundpad#readme",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.15.9 <10.0.0"
+  },
+  "devDependencies": {
+    "@decky/rollup": "^1.0.2",
+    "@decky/ui": "^4.11.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.7",
+    "react-router": "8.1.0",
+    "rollup": "^4.62.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@decky/api": "^1.1.3",
+    "react-icons": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.9"
+}

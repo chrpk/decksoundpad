@@ -1,0 +1,16 @@
+{
+  "library_dirs": ["~/Music/DeckSoundpad"],
+  "master_volume": 1.0,
+  "overlap_mode": "overlap",
+  "max_concurrent_sounds": 3,
+  "max_playback_seconds": 30.0,
+  "selected_mic_source": null,
+  "mic_passthrough_enabled": true,
+  "mic_passthrough_volume": 1.0,
+  "auto_repair_on_resume": true,
+  "background_healthcheck_enabled": false,
+  "overlay_hotkey_button": "l5",
+  "overlay_input_device": "auto",
+  "allowed_extensions": [".wav", ".flac", ".ogg", ".mp3"],
+  "allow_symlinks_outside_libraries": false
+}
