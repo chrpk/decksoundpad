@@ -28,8 +28,8 @@ importers:
         specifier: 19.2.7
         version: 19.2.7(@types/react@19.3.0)
       react-router:
-        specifier: 8.1.0
-        version: 8.1.0(react@19.2.7)
+        specifier: 8.5.1
+        version: 8.5.1(@types/react-dom@19.2.7(@types/react@19.3.0))(@types/react@19.3.0)(react@19.2.7)
       rollup:
         specifier: ^4.64.2
         version: 4.64.2
@@ -76,6 +76,9 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@remix-run/route-pattern@0.22.1':
+    resolution: {integrity: sha512-czdGJWh09Lapvcqt7Vb09KlrU2PhRJ8xQaI+AItTuD9aDJ5MAgxnS38lnys6Ll+6RJEqPiaUqTwIQhVLwFvv+w==}
 
   '@rollup/plugin-commonjs@26.0.3':
     resolution: {integrity: sha512-2BJcolt43MY+y5Tz47djHkodCC3c1VKVrBDKpVqHKpQ9z9S158kCCqB8NF6/gzxLdNlYW9abB3Ibh+kOWLp8KQ==}
@@ -558,13 +561,19 @@ packages:
     peerDependencies:
       react: '*'
 
-  react-router@8.1.0:
-    resolution: {integrity: sha512-Mdfi61uObuvWNN9OhChOC0HV6YWOIfKRzEWOvCHRSuQg8IM+Nv10edaM/2HE8ZixBpUTdQbruyWqC3sDkkh9vw==}
+  react-router@8.5.1:
+    resolution: {integrity: sha512-5u1eQ46QjuXjNfEnLwzrnou1Bm5dquO3xjVYkkMYCudtkicD2AQHtx+fvXzPATtPJx8TW6DR1x1TDRqsfHyZBw==}
     engines: {node: '>=22.22.0'}
     peerDependencies:
+      '@types/react': '>=19.2.0'
+      '@types/react-dom': '>=19.2.0'
       react: '>=19.2.7'
       react-dom: '>=19.2.7'
     peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
       react-dom:
         optional: true
 
@@ -734,6 +743,8 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@remix-run/route-pattern@0.22.1': {}
 
   '@rollup/plugin-commonjs@26.0.3(rollup@4.64.2)':
     dependencies:
@@ -1134,10 +1145,14 @@ snapshots:
     dependencies:
       react: 19.2.7
 
-  react-router@8.1.0(react@19.2.7):
+  react-router@8.5.1(@types/react-dom@19.2.7(@types/react@19.3.0))(@types/react@19.3.0)(react@19.2.7):
     dependencies:
+      '@remix-run/route-pattern': 0.22.1
       cookie-es: 3.1.1
       react: 19.2.7
+    optionalDependencies:
+      '@types/react': 19.3.0
+      '@types/react-dom': 19.2.7(@types/react@19.3.0)
 
   react@19.2.7: {}
 
